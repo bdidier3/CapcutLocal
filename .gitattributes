@@ -1,0 +1,8 @@
+# Les scripts shell doivent garder des fins de ligne Unix, meme clones depuis
+# Windows : un « \r » traine derriere le shebang fait echouer le lancement sur
+# « bad interpreter », un message qui n'aide personne.
+*.sh text eol=lf
+
+# Symetriquement, les scripts Windows veulent des fins de ligne Windows.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
