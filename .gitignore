@@ -1,0 +1,23 @@
+# Fichiers de travail : ils appartiennent a la machine, pas au projet.
+
+# Copies d'apercu, vignettes et videos telechargees. Se refabriquent, pesent
+# des centaines de Mo, et contiennent les videos personnelles de l'utilisateur.
+cache/
+
+# Montages enregistres : le contenu de l'utilisateur, jamais du code.
+projects/
+
+# Exports laisses a la racine.
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.mp3
+
+# Cookies exportes depuis un navigateur : ce sont des identifiants de session.
+cookies.txt
+*.cookies.txt
+
+node_modules/
+*.log

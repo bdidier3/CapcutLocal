@@ -1,0 +1,14 @@
+{
+  "name": "cutlocal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Editeur video local type CapCut - WebGL2 + WebCodecs, zero dependance",
+  "type": "commonjs",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

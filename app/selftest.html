@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>CutLocal — auto-tests</title>
+<style>
+  body{background:#0d0f14;color:#e7eaf1;font:12.5px/1.5 ui-monospace,Consolas,monospace;padding:18px}
+  h1{font-size:15px;color:#4cc2ff;margin-bottom:10px}
+  button{background:#2b6cff;color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;font:inherit;margin-right:6px}
+  .ok{color:#43d17c}.no{color:#ff5c6e}.warn{color:#ffc14d}.dim{color:#8d97a8}
+  pre{white-space:pre-wrap;margin-top:12px}
+  canvas{border:1px solid #333;margin:6px 6px 0 0;vertical-align:top}
+</style>
+</head>
+<body>
+<h1>CutLocal — auto-tests du moteur</h1>
+<button id="run">Lancer tous les tests</button>
+<button id="clean">Nettoyer les fichiers de test</button>
+<pre id="out"></pre>
+<div id="cv"></div>
+<script type="module" src="js/selftest.js"></script>
+</body>
+</html>

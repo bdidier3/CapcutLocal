@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CutLocal</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234f7cff'/><path d='M12 9.5v13l10-6.5z' fill='white'/></svg>">
+<script>window.__TK = '__TOKEN__';</script>
+</head>
+<body>
+
+<!-- ------------------------------------------------------------ jeu d'icones -->
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6.5V5h16v1.5M12 5v14M9 19h6"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M4 9h11a5 5 0 0 1 0 10h-6M4 9l4-4M4 9l4 4"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 9H9a5 5 0 0 0 0 10h6M20 9l-4-4M20 9l-4 4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.5 7.5l2 1.2M17.5 15.3l2 1.2M4.5 16.5l2-1.2M17.5 8.7l2-1.2"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7V4M8 20v-5h8v5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h6l2 2.5h10V19H3z"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v11M8 10.5l4 3.5 4-3.5M4 17v3h16v-3"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V8M8 11.5 12 8l4 3.5M4 4h16"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+
+  <symbol id="i-play" viewBox="0 0 24 24" class="solid"><path d="M8 5.2v13.6L19 12z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24" class="solid"><path d="M8 5h3.2v14H8zM12.8 5H16v14h-3.2z"/></symbol>
+  <symbol id="i-start" viewBox="0 0 24 24" class="solid"><path d="M7 5h2.2v14H7zM20 5.5v13L10 12z"/></symbol>
+  <symbol id="i-end" viewBox="0 0 24 24" class="solid"><path d="M14.8 5H17v14h-2.2zM4 5.5v13L14 12z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24" class="solid"><path d="M15 5.5v13L6 12z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24" class="solid"><path d="M9 5.5v13L18 12z"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 8-8c3 0 5.5 1.6 7 4M20 12a8 8 0 0 1-8 8c-3 0-5.5-1.6-7-4"/><path d="M19 3.5V8h-4.5M5 20.5V16h4.5"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"/></symbol>
+  <symbol id="i-vol-off" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></symbol>
+  <symbol id="i-safe" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 8.5v7M17 8.5v7M7 8.5h10M7 15.5h10" stroke-dasharray="2 2.4"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+
+  <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M8.3 15.7 19 4M15.7 15.7 5 4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 5.5H6a2 2 0 0 0-2 2v9.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4h5v2.5M6.5 6.5 7.5 20h9l1-13.5M10.5 10v6M13.5 10v6"/></symbol>
+  <symbol id="i-ripple" viewBox="0 0 24 24"><path d="M11 5.5 4.5 12l6.5 6.5M4.5 12H15"/><path d="M19.5 4.5v15"/></symbol>
+  <symbol id="i-mask" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><ellipse cx="14" cy="12" rx="4.6" ry="5"/><path d="M6.2 8.4h3M6.2 11.2h3M6.2 14h2"/></symbol>
+  <symbol id="i-detach" viewBox="0 0 24 24"><path d="M9 18.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM9 18.5V6l11-2v12.5"/><path d="M20 16.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/></symbol>
+  <symbol id="i-magnet" viewBox="0 0 24 24"><path d="M5 4v9a7 7 0 0 0 14 0V4h-4.5v9a2.5 2.5 0 0 1-5 0V4z"/><path d="M5 8.5h4.5M14.5 8.5H19"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5M11 8.5v5M8.5 11h5"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5M8.5 11h5"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4.5h5M20 9V4.5h-5M4 15v4.5h5M20 15v4.5h-5"/></symbol>
+  <symbol id="i-transition" viewBox="0 0 24 24"><rect x="2.5" y="6" width="8" height="12" rx="1.5"/><rect x="13.5" y="6" width="8" height="12" rx="1.5"/><path d="M9 12h6M12.5 9.5 15 12l-2.5 2.5"/></symbol>
+
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 5l16 14M9.5 7A9.6 9.6 0 0 1 12 6.7c6 0 9.5 5.3 9.5 5.3a15 15 0 0 1-3.2 3.6M6.3 8.6A15 15 0 0 0 2.5 12s3.5 5.3 9.5 5.3c1.2 0 2.3-.2 3.2-.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 7.5-2"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24" class="solid"><circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v14M16 5v14M3 12h18M3 8.5h5M3 15.5h5M16 8.5h5M16 15.5h5"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM20 16.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M9 18.5V6l11-2v12.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11.5v1M21.5 12h0"/></symbol>
+
+  <symbol id="i-rect" viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11" rx="1.5"/></symbol>
+  <symbol id="i-ellipse" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6"/></symbol>
+  <symbol id="i-linear" viewBox="0 0 24 24"><path d="M3 12h18"/><path d="M5 16h14" opacity=".45"/><path d="M7 19.5h10" opacity=".2"/></symbol>
+  <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M3 8.5h18M3 15.5h18"/><path d="M8 12h8" opacity=".4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.5 3.5 8l8.5 4.5L20.5 8z"/><path d="M3.5 12.5 12 17l8.5-4.5M3.5 16.5 12 21l8.5-4.5"/></symbol>
+  <symbol id="i-face" viewBox="0 0 24 24"><circle cx="12" cy="9.5" r="4.6"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/><path d="M9.6 8.6h.01M14.4 8.6h.01M10 11.6a3 3 0 0 0 4 0" stroke-width="1.9"/></symbol>
+  <symbol id="i-track" viewBox="0 0 24 24"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="10" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="M6.8 16.6 10.4 11.6M13.7 11.2 17.3 13.7" stroke-dasharray="2 2"/></symbol>
+  <symbol id="i-reverse" viewBox="0 0 24 24"><path d="M20 8H8a4 4 0 0 0 0 8h4"/><path d="M12 4.5 8 8l4 3.5M15 12.5 12 16l3 3.5"/></symbol>
+  <symbol id="i-freeze" viewBox="0 0 24 24"><path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9M12 6.6 9.6 4.4M12 6.6l2.4-2.2M12 17.4l-2.4 2.2M12 17.4l2.4 2.2"/></symbol>
+  <symbol id="i-cut-left" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M18 8.5h-3M18 12h-3M18 15.5h-3" opacity=".95"/><path d="M8.5 8.5h-3M8.5 12h-3M8.5 15.5h-3" opacity=".28"/></symbol>
+  <symbol id="i-cut-right" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8.5 8.5h-3M8.5 12h-3M8.5 15.5h-3" opacity=".95"/><path d="M18 8.5h-3M18 12h-3M18 15.5h-3" opacity=".28"/></symbol>
+  <symbol id="i-flip-h" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8.5 7 3.5 12l5 5z"/><path d="M15.5 7l5 5-5 5z" opacity=".45"/></symbol>
+  <symbol id="i-flip-v" viewBox="0 0 24 24"><path d="M3 12h18"/><path d="M7 8.5 12 3.5l5 5z"/><path d="M7 15.5 12 20.5l5-5z" opacity=".45"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 3.5V8h-4.5"/></symbol>
+  <symbol id="i-slow" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M12 20.5v.01"/></symbol>
+  <symbol id="i-fast" viewBox="0 0 24 24"><path d="M4 6.5v11L12 12z"/><path d="M12 6.5v11L20 12z"/></symbol>
+  <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 3v13.5A1.5 1.5 0 0 0 7.5 18H21M3 6h13.5A1.5 1.5 0 0 1 18 7.5V21"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 3.5V8h4.5"/></symbol>
+  <symbol id="i-trim-left" viewBox="0 0 24 24"><path d="M12 3v18"/><rect x="12.8" y="7" width="8.2" height="10" rx="1.5"/><path d="M3 9.5l6 5M9 9.5l-6 5"/></symbol>
+  <symbol id="i-trim-right" viewBox="0 0 24 24"><path d="M12 3v18"/><rect x="3" y="7" width="8.2" height="10" rx="1.5"/><path d="M15 9.5l6 5M21 9.5l-6 5"/></symbol>
+  <symbol id="i-fade" viewBox="0 0 24 24"><path d="M3 19.5 21 4.5v15z"/></symbol>
+  <symbol id="i-color" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none" opacity=".45"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M12 4.5 19.5 12 12 19.5 4.5 12z"/></symbol>
+  <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.5 6.5a3.5 3.5 0 0 1 4.8-3.2l-2.4 2.4 1.4 1.4 2.4-2.4a3.5 3.5 0 0 1-4.6 4.7L5.6 20.4a2 2 0 0 1-2.8-2.8L13.9 6.5z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.2 1.2"/><path d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.2-1.2"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="16" rx="2"/><path d="M10 4V2.8h4V4"/><path d="M9.5 11h5M9.5 14.5h5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20H4z"/><path d="M9.5 20v-6h5v6"/></symbol>
+  <symbol id="i-poly" viewBox="0 0 24 24"><path d="M12 4 20 10l-3 9.5H7L4 10z"/></symbol>
+</svg>
+
+<!-- --------------------------------------------------------------- barre haute -->
+<header class="topbar">
+  <span class="logo"><svg class="i solid"><use href="#i-play"/></svg></span>
+  <input id="projName" class="projname" value="Projet sans titre" spellcheck="false" aria-label="Nom du projet">
+
+  <span class="vsep"></span>
+  <button id="btnUndo" class="btn icon" title="Annuler — Ctrl+Z"><svg class="i"><use href="#i-undo"/></svg></button>
+  <button id="btnRedo" class="btn icon" title="Refaire — Ctrl+Y"><svg class="i"><use href="#i-redo"/></svg></button>
+
+  <div class="spacer"></div>
+
+  <div class="tb-dl">
+    <button id="btnDlVideo" class="btn dl" title="Coller un lien TikTok / Instagram / YouTube et importer la VIDEO">
+      <svg class="i sm"><use href="#i-link"/></svg>Telecharger video
+    </button>
+    <button id="btnDlAudio" class="btn dl" title="Coller un lien TikTok / Instagram / YouTube et importer seulement le SON">
+      <svg class="i sm"><use href="#i-music"/></svg>Telecharger son
+    </button>
+  </div>
+
+  <div class="spacer"></div>
+  <span id="stats" class="stat"></span>
+  <button id="btnStock" class="chip" title="Place occupee sur le disque — liberer">
+    <svg class="i sm"><use href="#i-trash"/></svg><span id="stockChiffre">—</span>
+  </button>
+  <button id="btnSettings" class="chip" title="Reglages du projet">
+    <span id="projFmt">1920×1080 · 30</span><svg class="i sm"><use href="#i-settings"/></svg>
+  </button>
+  <span class="vsep"></span>
+  <button id="btnHome" class="btn icon" title="Mes projets"><svg class="i"><use href="#i-home"/></svg></button>
+  <button id="btnSave" class="btn icon" title="Enregistrer — Ctrl+S"><svg class="i"><use href="#i-save"/></svg></button>
+  <button id="btnExport" class="btn primary" title="Exporter — Ctrl+E"><svg class="i"><use href="#i-export"/></svg>Exporter</button>
+</header>
+
+<main class="workspace">
+  <!-- ------------------------------------------------------ rail de rubriques -->
+  <nav class="rail" id="rail">
+    <button class="rail-btn on" data-tab="media" title="Videos, images et audio"><svg class="i"><use href="#i-film"/></svg><span>Medias</span></button>
+    <button class="rail-btn" data-tab="audio" title="Pistes audio"><svg class="i"><use href="#i-music"/></svg><span>Son</span></button>
+    <button class="rail-btn" data-tab="text" title="Ajouter du texte"><svg class="i"><use href="#i-text"/></svg><span>Texte</span></button>
+    <button class="rail-btn" data-tab="mask" title="Masques et flou"><svg class="i"><use href="#i-mask"/></svg><span>Masques</span></button>
+    <button class="rail-btn" data-tab="trans" title="Transitions"><svg class="i"><use href="#i-transition"/></svg><span>Transit.</span></button>
+    <button class="rail-btn" data-tab="tools" title="Inverser, figer, couper, miroir..."><svg class="i"><use href="#i-tools"/></svg><span>Outils</span></button>
+  </nav>
+
+  <!-- ------------------------------------------------------------- panneau gauche -->
+  <aside class="panel left">
+    <div class="panel-top">
+      <button id="btnImport" class="btn primary sm grow" title="Importer des fichiers — Ctrl+I"><svg class="i sm"><use href="#i-plus"/></svg>Importer</button>
+      <label class="search" title="Filtrer par nom">
+        <svg class="i sm"><use href="#i-search"/></svg>
+        <input id="mSearch" type="search" placeholder="Rechercher" spellcheck="false">
+      </label>
+    </div>
+
+    <!-- rubrique MEDIAS -->
+    <div class="tabpane on" data-pane="media">
+      <div class="chips" id="mFilters">
+        <button class="chip-f on" data-f="all" title="Tout">Tout <b id="cAll"></b></button>
+        <button class="chip-f" data-f="video" title="Videos"><svg class="i sm"><use href="#i-film"/></svg><b id="cVid"></b></button>
+        <button class="chip-f" data-f="audio" title="Audio"><svg class="i sm"><use href="#i-music"/></svg><b id="cAud"></b></button>
+        <button class="chip-f" data-f="image" title="Images"><svg class="i sm"><use href="#i-image"/></svg><b id="cImg"></b></button>
+      </div>
+      <div id="bin" class="bin"></div>
+      <div class="panel-foot">
+        <div id="binSelInfo" class="bin-selinfo hidden"></div>
+        <button id="btnAddSel" class="btn wide sm" title="Ajouter les medias selectionnes a la fin de la timeline"><svg class="i sm"><use href="#i-plus"/></svg><span>Ajouter a la timeline</span></button>
+      </div>
+    </div>
+
+    <!-- rubrique SON -->
+    <div class="tabpane" data-pane="audio">
+      <div id="binAudio" class="bin"></div>
+      <div class="panel-foot">
+        <button id="btnImportAudio" class="btn wide sm"><svg class="i sm"><use href="#i-music"/></svg>Importer de la musique</button>
+      </div>
+    </div>
+
+    <!-- rubrique TEXTE -->
+    <div class="tabpane" data-pane="text">
+      <div class="pane-scroll" id="panelText"></div>
+    </div>
+
+    <!-- rubrique MASQUES -->
+    <div class="tabpane" data-pane="mask">
+      <div class="pane-scroll" id="panelMask"></div>
+    </div>
+
+    <!-- rubrique TRANSITIONS -->
+    <div class="tabpane" data-pane="trans">
+      <div class="pane-scroll" id="panelTrans"></div>
+    </div>
+
+    <div class="tabpane" data-pane="tools">
+      <div class="pane-scroll" id="panelTools"></div>
+    </div>
+  </aside>
+
+  <div class="split-v" data-split="left" title="Glisser pour redimensionner"></div>
+
+  <!-- ------------------------------------------------------------ visionneuse -->
+  <section class="center">
+    <div class="viewer" id="viewer">
+      <div class="stage" id="stage">
+        <canvas id="gl"></canvas>
+        <svg id="overlay" class="overlay" preserveAspectRatio="none"></svg>
+        <div class="safe" id="safe"></div>
+        <!-- l'apercu prefere ne rien montrer plutot qu'un plan qui n'est pas
+             celui du montage : ce voyant dit que l'image demandee arrive -->
+        <div class="stage-attente hidden" id="stageAttente"><span class="spin"></span></div>
+      </div>
+      <div class="viewer-empty" id="viewerEmpty">
+        <svg class="i xl"><use href="#i-film"/></svg>
+        <p>Glissez une video ici</p>
+        <button class="btn primary sm" id="btnImport2"><svg class="i sm"><use href="#i-plus"/></svg>Importer</button>
+      </div>
+    </div>
+
+    <div class="transport">
+      <span id="tcCur" class="tc">00:00:00</span>
+      <span class="tc sep">/</span>
+      <span id="tcTot" class="tc muted">00:00:00</span>
+
+      <div class="t-mid">
+        <button id="btnStart" class="btn icon ghost" title="Debut — Origine"><svg class="i"><use href="#i-start"/></svg></button>
+        <button id="btnPrevF" class="btn icon ghost" title="Image precedente — ←"><svg class="i"><use href="#i-prev"/></svg></button>
+        <button id="btnPlay" class="btn play" title="Lecture / Pause — Espace"><svg class="i"><use href="#i-play"/></svg></button>
+        <button id="btnNextF" class="btn icon ghost" title="Image suivante — →"><svg class="i"><use href="#i-next"/></svg></button>
+        <button id="btnEnd" class="btn icon ghost" title="Fin — Fin"><svg class="i"><use href="#i-end"/></svg></button>
+        <button id="btnLoop" class="btn icon ghost" title="Boucle — L"><svg class="i"><use href="#i-loop"/></svg></button>
+      </div>
+
+      <div class="t-right">
+        <button id="btnMute" class="btn icon ghost" title="Son de l'apercu"><svg class="i"><use href="#i-vol"/></svg></button>
+        <button id="btnSafe" class="btn icon ghost" title="Reperes de cadrage"><svg class="i"><use href="#i-safe"/></svg></button>
+        <button id="btnFull" class="btn icon ghost" title="Plein ecran — Maj+F (Echap pour sortir)"><svg class="i"><use href="#i-expand"/></svg></button>
+        <select id="quality" title="Qualite de l'apercu (n'affecte pas l'export)">
+          <option value="auto">Auto</option>
+          <option value="1">100 %</option>
+          <option value="0.6666">66 %</option>
+          <option value="0.5">50 %</option>
+          <option value="0.25">25 %</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <div class="split-v" data-split="right" title="Glisser pour redimensionner"></div>
+
+  <aside class="panel right" id="inspector"></aside>
+</main>
+
+<div class="split-h" data-split="tl" title="Glisser pour redimensionner la timeline"></div>
+
+<!-- --------------------------------------------------------------- timeline -->
+<div class="tl-toolbar">
+  <button id="tlSplit" class="btn icon sm" title="Couper au curseur — S&#10;Un clip selectionne : on ne coupe que celui-la (Ctrl+clic pour en ajouter).&#10;Rien de selectionne : on coupe toutes les pistes."><svg class="i sm"><use href="#i-cut"/></svg></button>
+  <button id="tlCutL" class="btn icon sm" title="Couper la partie gauche — Q&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-left"/></svg></button>
+  <button id="tlCutR" class="btn icon sm" title="Couper la partie droite — W&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-right"/></svg></button>
+  <button id="tlDel" class="btn icon sm" title="Supprimer — Suppr"><svg class="i sm"><use href="#i-trash"/></svg></button>
+  <button id="tlRipple" class="btn icon sm" title="Supprimer et combler le trou — Maj+Suppr"><svg class="i sm"><use href="#i-ripple"/></svg></button>
+  <button id="tlDup" class="btn icon sm" title="Dupliquer — Ctrl+D"><svg class="i sm"><use href="#i-copy"/></svg></button>
+  <span class="vsep"></span>
+  <button id="tlMute" class="btn icon sm" title="Couper / remettre le son du clip — Ctrl+M"><svg class="i sm"><use href="#i-vol"/></svg></button>
+  <button id="tlDetach" class="btn icon sm" title="Detacher l'audio sur une piste separee"><svg class="i sm"><use href="#i-detach"/></svg></button>
+  <span class="vsep"></span>
+  <button id="tlFace" class="btn icon sm hi" title="Flouter un visage (rond flou + suivi) — F"><svg class="i sm"><use href="#i-face"/></svg></button>
+  <button id="tlMask" class="btn icon sm" title="Ajouter un masque flou — M"><svg class="i sm"><use href="#i-mask"/></svg></button>
+  <button id="tlOverlay" class="btn icon sm" title="Superposer le media selectionne par-dessus la video"><svg class="i sm"><use href="#i-layers"/></svg></button>
+  <button id="tlTrans" class="btn icon sm" title="Fondu enchaine avec le clip suivant"><svg class="i sm"><use href="#i-transition"/></svg></button>
+  <span class="vsep"></span>
+  <button id="tlSnap" class="btn icon sm toggle on" title="Aimant (accrochage)"><svg class="i sm"><use href="#i-magnet"/></svg></button>
+  <span class="vsep"></span>
+  <div id="clipChips" class="clip-chips hidden"></div>
+  <div class="spacer"></div>
+  <button id="tlZoomOut" class="btn icon sm" title="Zoom arriere — -"><svg class="i sm"><use href="#i-zoom-out"/></svg></button>
+  <input id="tlZoom" class="zoomer" type="range" min="0" max="1000" value="300" title="Zoom de la timeline">
+  <button id="tlZoomIn" class="btn icon sm" title="Zoom avant — +"><svg class="i sm"><use href="#i-zoom-in"/></svg></button>
+  <button id="tlFit" class="btn icon sm" title="Tout afficher — Maj+Z"><svg class="i sm"><use href="#i-fit"/></svg></button>
+</div>
+
+<div class="timeline" id="timeline"></div>
+
+<!-- ------------------------------------------------------- boite d'export -->
+<dialog id="dlgExport" class="dlg">
+  <form method="dialog">
+    <h2>Exporter</h2>
+    <label class="wide">Nom du fichier
+      <div class="seg-row">
+        <button type="button" id="exPlatTiktok" class="seg on">TikTok</button>
+        <button type="button" id="exPlatYoutube" class="seg">YouTube</button>
+      </div>
+      <div class="inline-row">
+        <input id="exName" type="text" spellcheck="false" autocomplete="off">
+        <span class="unit">.mp4</span>
+      </div>
+    </label>
+    <div class="grid2">
+      <label>Resolution<select id="exRes"></select></label>
+      <label>Images / s<select id="exFps"></select></label>
+      <label>Codec<select id="exCodec"></select></label>
+      <label>Qualite
+        <select id="exQual">
+          <option value="low">Legere</option>
+          <option value="medium">Standard</option>
+          <option value="high" selected>Haute</option>
+          <option value="max">Maximale</option>
+        </select>
+      </label>
+      <label>Debit video
+        <div class="inline-row"><input id="exBitrate" type="number" min="1" max="400" step="1"><span class="unit">Mb/s</span></div>
+      </label>
+      <label>Audio
+        <select id="exAudio">
+          <option value="192000" selected>AAC 192 kb/s</option>
+          <option value="320000">AAC 320 kb/s</option>
+          <option value="128000">AAC 128 kb/s</option>
+          <option value="0">Sans audio</option>
+        </select>
+      </label>
+      <label>Image cle tous les
+        <div class="inline-row"><input id="exGop" type="number" min="1" max="600" step="1" value="60"><span class="unit">images</span></div>
+      </label>
+      <label>Etendue
+        <select id="exRange">
+          <option value="all">Tout le projet</option>
+          <option value="sel">Selection</option>
+        </select>
+      </label>
+    </div>
+    <p id="exInfo" class="callout"></p>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn">Annuler</button>
+      <button id="exGo" value="go" class="btn primary"><svg class="i sm"><use href="#i-export"/></svg>Exporter</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ---------------------------------------------------- reglages du projet -->
+<dialog id="dlgSettings" class="dlg">
+  <form method="dialog">
+    <h2>Reglages du projet</h2>
+    <div class="grid2">
+      <label>Resolution<select id="stRes"></select></label>
+      <label>Images / s<select id="stFps"></select></label>
+      <label>Largeur<input id="stW" type="number" min="16" max="7680" step="2"></label>
+      <label>Hauteur<input id="stH" type="number" min="16" max="7680" step="2"></label>
+      <label>Fond<input id="stBg" type="color" value="#000000"></label>
+    </div>
+    <!-- place occupee sur le disque : invisible autrement, et cela finit par
+         peser des giga-octets -->
+    <div class="dlg-actions">
+      <button value="cancel" class="btn">Annuler</button>
+      <button value="ok" class="btn primary">Appliquer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------ cache disque -->
+<dialog id="dlgStock" class="dlg">
+  <form method="dialog">
+    <h3>Place occupee sur le disque</h3>
+    <p class="hint">
+      Total : <b id="stStockTotal">…</b>. Cochez ce que vous voulez effacer.
+    </p>
+    <div id="stStockListe" class="stock-liste"></div>
+    <div class="row-btns" style="margin-top:8px">
+      <button id="stStockNettoyer" type="button" class="btn sm">Liberer la place</button>
+      <span id="stStockEtat" class="faint tiny"></span>
+    </div>
+    <p class="hint">
+      Les copies d'apercu et les vignettes se refabriquent toutes seules : les
+      effacer ne fait perdre que du temps a la prochaine ouverture. Les videos
+      telechargees, elles, ne reviennent pas.
+    </p>
+    <p class="hint">
+      Ce menage se fait aussi tout seul : les copies les moins utilisees sont
+      effacees des que le cache depasse 2 Go.
+    </p>
+    <div class="dlg-actions">
+      <button value="ok" class="btn primary">Fermer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------ progression export -->
+<div id="exportOverlay" class="ovl hidden">
+  <div class="ovl-card">
+    <h3 id="opTitle">Export…</h3>
+    <div class="bar"><div id="opBar" class="bar-in"></div></div>
+    <p id="opText" class="muted"></p>
+    <p id="opSub" class="faint tiny"></p>
+    <p id="opDiag" class="op-diag hidden"></p>
+
+    <!-- propose l'envoi vers VLC une fois l'export termine -->
+    <div id="opVlc" class="op-vlc hidden">
+      <div class="op-vlc-q">Envoyer la video sur VLC (iPhone) ?</div>
+      <div class="op-vlc-adr">
+        <label>Adresse VLC
+          <input id="opVlcUrl" type="text" spellcheck="false" autocomplete="off" placeholder="192.168.1.26">
+        </label>
+      </div>
+      <div id="opVlcEtat" class="op-vlc-etat"></div>
+      <div class="op-vlc-btns">
+        <button id="opVlcOui" class="btn primary">Oui, envoyer</button>
+        <button id="opVlcNon" class="btn">Non</button>
+      </div>
+    </div>
+
+    <div class="dlg-actions">
+      <button id="opCancel" class="btn">Annuler</button>
+      <button id="opReveal" class="btn hidden"><svg class="i sm"><use href="#i-folder"/></svg>Ouvrir le dossier</button>
+      <button id="opClose" class="btn primary hidden">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------- ecran d'accueil -->
+<div id="home" class="home hidden">
+  <div class="home-panel">
+    <div class="home-head">
+      <span class="logo"><svg class="i solid"><use href="#i-play"/></svg></span>
+      <div class="home-title">
+        <b>Mes projets</b>
+        <span id="homeCount" class="faint tiny"></span>
+      </div>
+      <label class="search">
+        <svg class="i sm"><use href="#i-search"/></svg>
+        <input id="homeSearch" type="search" placeholder="Rechercher un projet" spellcheck="false">
+      </label>
+      <button id="homeImport" class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg>Nouveau + importer</button>
+      <button id="homeNew" class="btn primary sm"><svg class="i sm"><use href="#i-plus"/></svg>Nouveau projet</button>
+      <button id="homeClose" class="btn icon sm" title="Fermer"><svg class="i sm"><use href="#i-close"/></svg></button>
+    </div>
+    <div id="homeGrid" class="home-grid"></div>
+    <div class="home-foot faint tiny">
+      Les projets sont enregistres automatiquement sur cette machine. Clic droit sur un projet pour le renommer, le dupliquer ou le supprimer.
+    </div>
+  </div>
+</div>
+
+<!-- ------------------------------------------------ import depuis un lien -->
+<dialog id="dlgDl" class="dlg">
+  <form method="dialog">
+    <h2 id="dlTitle">Telecharger depuis un lien</h2>
+
+    <div id="dlMissing" class="hidden">
+      <p class="callout" style="margin-top:0">
+        Cette fonction s'appuie sur <b>yt-dlp</b>, l'outil libre de reference, qui n'est pas
+        installe sur cette machine. CutLocal ne telecharge rien tout seul : installez-le une
+        fois, puis revenez ici.
+      </p>
+      <label style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted)">
+        Commande a lancer dans un terminal
+        <div class="inline-row">
+          <input id="dlCmd" type="text" readonly value="python -m pip install -U yt-dlp">
+          <button id="dlCopy" type="button" class="btn sm"><svg class="i sm"><use href="#i-paste"/></svg>Copier</button>
+        </div>
+      </label>
+      <p class="hint">Puis cliquez sur « Verifier a nouveau ».</p>
+      <div class="dlg-actions">
+        <button id="dlRecheck" type="button" class="btn">Verifier a nouveau</button>
+        <button value="cancel" class="btn primary">Fermer</button>
+      </div>
+    </div>
+
+    <div id="dlReady" class="hidden">
+      <label style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--muted)">
+        Lien de la publication
+        <div class="inline-row">
+          <input id="dlUrl" type="url" placeholder="https://www.tiktok.com/@… ou https://youtu.be/…" spellcheck="false">
+          <button id="dlPaste" type="button" class="btn sm" title="Coller depuis le presse-papiers"><svg class="i sm"><use href="#i-paste"/></svg></button>
+        </div>
+      </label>
+      <p class="hint" style="margin-top:-4px">
+        La meilleure qualite disponible est prise automatiquement, et la video est
+        ajoutee au projet des qu'elle arrive.
+      </p>
+      <div class="dl-modes">
+        <button id="dlModeVideo" type="button" class="btn sm on"><svg class="i sm"><use href="#i-film"/></svg>Video + son</button>
+        <button id="dlModeAudio" type="button" class="btn sm"><svg class="i sm"><use href="#i-music"/></svg>Son seulement</button>
+      </div>
+
+      <!-- Tout ce qui suit est accessoire : coller un lien doit suffire. On le
+           replie donc, pour que le chemin normal tienne en un champ. -->
+      <details class="dl-avance">
+        <summary>Options avancees</summary>
+
+        <div class="dl-compte">
+          <label class="dl-chk">
+            <input id="dlParCompte" type="checkbox"> Prendre les videos d'un compte
+          </label>
+          <div id="dlCompteBloc" class="hidden">
+            <div class="inline-row">
+              <input id="dlCompte" type="text" spellcheck="false" placeholder="@clip2ep.fan">
+              <span class="unit">les</span>
+              <input id="dlCombien" type="number" min="1" max="50" value="10" style="max-width:64px">
+              <span class="unit">plus recentes</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dl-compte">
+          <div class="inline-row">
+            <span class="unit">cookies</span>
+            <select id="dlCookies">
+              <option value="">aucun</option>
+              <option value="firefox">Firefox</option>
+              <option value="fichier">un fichier cookies.txt…</option>
+            </select>
+            <input id="dlCookieChemin" type="text" class="hidden" spellcheck="false"
+                   placeholder="chemin du fichier cookies.txt — ou cliquez sur Parcourir">
+            <button id="dlCookieFichier" type="button" class="btn sm hidden">Parcourir…</button>
+          </div>
+          <p class="hint" id="dlCookieAide">
+            Utile seulement si un site refuse la video a un visiteur non connecte.
+          </p>
+        </div>
+      </details>
+
+      <p id="dlHost" class="hint"></p>
+      <div id="dlProg" class="hidden">
+        <div class="bar"><div id="dlBar" class="bar-in"></div></div>
+        <p id="dlState" class="muted" style="font-size:12px;margin-top:8px"></p>
+      </div>
+      <p class="hint" id="dlLegal">
+        N'importez que des contenus dont vous avez le droit de vous servir : vos propres
+        publications, du contenu libre, ou une piste dont vous detenez la licence.
+      </p>
+      <!-- dossier des telechargements -->
+      <div id="dlDossier" class="dl-dossier hidden">
+        <div class="dl-dossier-tete">
+          <span id="dlDossierTitre">Dossier des telechargements</span>
+          <button id="dlSupprSel" type="button" class="btn sm">Supprimer la selection</button>
+        </div>
+        <div id="dlListe" class="dl-liste"></div>
+      </div>
+
+      <div class="dlg-actions">
+        <button id="dlOuvrirDossier" type="button" class="btn"><svg class="i sm"><use href="#i-folder"/></svg>Ouvrir le dossier</button>
+        <button id="dlCancel" type="button" class="btn hidden">Arreter</button>
+        <button value="cancel" class="btn">Fermer</button>
+        <button id="dlGo" type="button" class="btn primary"><svg class="i sm"><use href="#i-export"/></svg>Importer</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts"></div>
+<input type="file" id="filePicker" multiple accept="video/*,audio/*,image/*" hidden>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
