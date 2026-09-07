@@ -23,6 +23,7 @@ const vlc = require('./vlc');
 const dl = require('./dl');
 const proxy = require('./proxy');
 const stockage = require('./stockage');
+const { ouvrirCible } = require('./ouvrir');
 
 const ROOT = path.join(__dirname, '..');
 const APP_DIR = path.join(ROOT, 'app');
@@ -344,7 +345,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/open' && req.method === 'POST') {
-      spawn('cmd', ['/c', 'start', '', q.get('p')], { windowsHide: true, detached: true }).unref();
+      ouvrirCible(q.get('p'));
       return sendJson(res, 200, { ok: true });
     }
 
@@ -610,7 +611,7 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('');
   console.log('  Ctrl+C pour arreter.');
   if (!process.env.NO_OPEN) {
-    spawn('cmd', ['/c', 'start', '', urlApp.replace(/&/g, '^&')], { windowsHide: true, detached: true }).unref();
+    ouvrirCible(urlApp);
   }
 });
 

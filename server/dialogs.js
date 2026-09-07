@@ -1,5 +1,14 @@
 'use strict';
-/* Boites de dialogue natives Windows via PowerShell (STA). Aucune dependance. */
+/*
+ * Boites de dialogue natives.
+ *
+ * Sous Windows on passe par PowerShell et WinForms (mode STA, exige par les
+ * boites de dialogue). Ailleurs, l'assistant du bureau prend le relais — voir
+ * dialogs-nix.js. Aucune dependance dans les deux cas.
+ *
+ * L'aiguillage se fait ici, une seule fois, pour que le reste du serveur n'ait
+ * jamais a savoir sur quel systeme il tourne.
+ */
 
 const { spawn } = require('child_process');
 
@@ -7,6 +16,10 @@ const { spawn } = require('child_process');
 const SAUTS_DE_LIGNE = /\r?\n/;
 const path = require('path');
 const fs = require('fs');
+
+const WINDOWS = process.platform === 'win32';
+const nix = WINDOWS ? null : require('./dialogs-nix');
+const { ouvrirCible } = require('./ouvrir');
 
 const VIDEO_FILTER = 'Videos|*.mp4;*.mov;*.m4v;*.mkv;*.webm;*.avi;*.wmv;*.mts;*.m2ts;*.mpg;*.mpeg;*.3gp;*.flv|' +
   'Audio|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.opus|' +
@@ -37,6 +50,7 @@ Add-Type -AssemblyName System.Drawing | Out-Null
 `;
 
 async function openFiles(initialDir) {
+  if (nix) return nix.openFiles(initialDir);
   const dir = (initialDir || '').replace(/'/g, "''");
   const script = `${PREAMBLE}
 $d = New-Object System.Windows.Forms.OpenFileDialog
@@ -54,6 +68,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
 /** Choix d'un fichier de cookies exporte depuis un navigateur. */
 async function pickCookies() {
+  if (nix) return nix.pickCookies();
   // La fenetre doit s'ouvrir DEVANT. Le serveur tourne en arriere-plan : sans
   // proprietaire toujours au premier plan, la boite de dialogue apparait
   // derriere l'application et donne l'impression que le bouton ne fait rien.
@@ -78,6 +93,7 @@ $avant.Close()
 }
 
 async function saveFile(defaultName, initialDir) {
+  if (nix) return nix.saveFile(defaultName, initialDir);
   const name = (defaultName || 'export.mp4').replace(/'/g, "''");
   const dir = (initialDir || '').replace(/'/g, "''");
   const script = `${PREAMBLE}
@@ -103,6 +119,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 }
 
 async function pickFolder() {
+  if (nix) return nix.pickFolder();
   const script = `${PREAMBLE}
 $d = New-Object System.Windows.Forms.FolderBrowserDialog
 $d.Description = 'Choisir un dossier'
@@ -120,6 +137,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
  * par PowerShell : c'est instantane, et l'export ne doit pas attendre.
  */
 function desktopDir() {
+  if (nix) return nix.desktopDir();
   const home = process.env.USERPROFILE || require('os').homedir();
   const cands = [
     path.join(home, 'Desktop'),
@@ -153,12 +171,16 @@ function auPremierPlan(dir) {
 }
 
 function openFolder(dir) {
+  if (!WINDOWS) { ouvrirCible(dir); return; }
   spawn('explorer.exe', [dir], { windowsHide: true, detached: true }).unref();
   auPremierPlan(dir);
 }
 
 /** Ouvre le dossier d'un fichier avec celui-ci deja selectionne, devant. */
 function reveal(target) {
+  // Seul l'Explorateur sait ouvrir un dossier avec un fichier deja
+  // selectionne. Ailleurs on ouvre le dossier : c'est l'essentiel du geste.
+  if (!WINDOWS) { ouvrirCible(path.dirname(target)); return; }
   spawn('explorer.exe', ['/select,', target], { windowsHide: true, detached: true }).unref();
   // /select ouvre le dossier parent : c'est cette fenetre qu'il faut ramener.
   auPremierPlan(path.dirname(target));

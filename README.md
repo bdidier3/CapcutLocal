@@ -17,6 +17,8 @@ des rushes 4K, fabriquer les vignettes, et rapporter une vidéo depuis un lien.
 
 ## Installer
 
+### Windows
+
 Double-cliquez sur **`Installer.bat`**, une seule fois.
 
 Il installe ce qui manque, et rien d'autre — il ne désinstalle jamais rien et ne
@@ -36,6 +38,38 @@ peut laisser un programme installé tout en refusant de l'exécuter.
 
 Si un outil vient d'être installé, il peut rester invisible dans la fenêtre en
 cours : fermez-la, rouvrez-en une, relancez le script.
+
+### Linux (Kali, Debian, Ubuntu…)
+
+```sh
+chmod +x installer.sh lancer.sh
+./installer.sh
+./lancer.sh
+```
+
+Mêmes outils, installés par **apt**, sauf yt-dlp qui passe par **pipx** : la
+version des dépôts a souvent plusieurs mois de retard, or les sites qu'elle
+télécharge changent tous les mois.
+
+S'ajoute **zenity**, qui ouvre les fenêtres de choix de fichier. Il est
+facultatif : sans lui, l'import se fait par glisser-déposer et l'export vers le
+dossier proposé.
+
+Sur une distribution sans apt, le script ne tente rien et affiche la commande
+correspondant à votre gestionnaire de paquets, plutôt qu'une commande qui
+échouerait.
+
+> **Ce qui n'a pas pu être vérifié.** L'application a été développée et testée
+> sous Windows. Le code spécifique à Linux — fenêtres de dialogue, ouverture de
+> dossiers, installateur — a été écrit et testé dans ses chemins logiques, mais
+> **jamais exécuté sur une vraie machine Linux**. Le point le plus incertain est
+> l'export : il dépend de l'encodeur vidéo du navigateur (WebCodecs), dont le
+> support varie selon la version de Chromium et le matériel. L'export interroge
+> le navigateur avant de commencer et refuse clairement s'il ne trouve aucune
+> configuration utilisable — vous le saurez tout de suite plutôt qu'à la fin.
+>
+> Ouvrez `selftest.html` après installation : la suite de tests vous dira en
+> une minute ce qui fonctionne réellement sur votre machine.
 
 ---
 

@@ -975,7 +975,7 @@ async function runAll() {
       intrus.length ? `${intrus.length} intruse(s) : ${intrus.slice(0, 4).map(decrire).join(', ')}` : `${defile.length} images distinctes vues`);
 
     // chaque plan doit avoir montre plus que sa premiere image
-    let plansVus = 0; const plansFiges = [];
+    let plansVus = 0; const plansFiges = []; const plansNonVus = [];
     let base = 0;
     for (const [s, dep, n] of plan) {
       if (n < 2) { base += n; continue; }
@@ -987,15 +987,23 @@ async function runAll() {
       // plans assez longs, une seule pour les plus courts.
       const exige = n >= 5 ? 2 : 1;
       if (distincts >= exige) plansVus++;
+      else if (distincts === 0) plansNonVus.push(`s${s}`);
       else plansFiges.push(`s${s} (${distincts} image(s) vue(s) sur ${n})`);
       base += n;
     }
     // Le defaut qu'on traque est precis : chaque plan bloque sur sa PREMIERE
     // image. Il se reconnait a ce que les plans montrent exactement une image,
     // pas zero — zero veut dire qu'on n'a rien pu mesurer.
-    if (assez) {
+    // On ne juge que les plans reellement observes. Le defaut traque — un plan
+    // bloque sur sa premiere image — se reconnait a UNE image vue, pas zero.
+    if (assez && plansVus + plansFiges.length > 0) {
       check('lecture : chaque plan defile vraiment', plansFiges.length === 0,
         plansFiges.length ? plansFiges.join(' | ') : `${plansVus} plans ont montre plusieurs images`);
+    }
+    if (plansNonVus.length) {
+      log(`  ⓘ ${plansNonVus.length} plan(s) sans aucun releve (${plansNonVus.join(', ')}) :`
+        + " non mesures. Gardez la fenetre au premier plan : en arriere-plan, le"
+        + " navigateur gele l'animation.", 'dim');
     }
 
     player.disposeAll && player.disposeAll();
