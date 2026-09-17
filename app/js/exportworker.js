@@ -53,6 +53,7 @@ self.onmessage = async (ev) => {
   let renderer = null;
   let encoder = null;
   const decoders = new Map();
+  let manquantes = 0;
 
   try {
     const canvas = new OffscreenCanvas(W, H);
@@ -72,6 +73,14 @@ self.onmessage = async (ev) => {
     });
     encoder.configure(o.config);
 
+    const elaguer = (garder) => {
+      for (const [id, d] of decoders) {
+        if (garder.has(id)) continue;
+        try { d.close(); } catch (_) {}
+        decoders.delete(id);
+      }
+    };
+
     const getDecoder = async (clip, media) => {
       let d = decoders.get(clip.id);
       if (!d) {
@@ -89,14 +98,21 @@ self.onmessage = async (ev) => {
       if (encErr) throw encErr;
       const t = o.from + n / o.fps;
       const acts = activeAt(project, t).filter((a) => a.track.kind !== 'audio' && a.clip.kind !== 'audio');
+      if ((n & 31) === 0) elaguer(new Set(acts.map((a) => a.clip.id)));
       const sources = new Map();
       for (const a of acts) {
         if (a.clip.kind === 'text') continue;
         const media = mediaOf(project, a.clip);
         if (!media || !media.hasVideo) continue;
         const dec = await getDecoder(a.clip, media);
-        const got = await dec.frameAt(sourceTime(a.clip, a.tLocal));
-        if (got) sources.set(a.clip.id, got);
+        try {
+          const got = await dec.frameAt(sourceTime(a.clip, a.tLocal));
+          if (got) sources.set(a.clip.id, got);
+        } catch (e) {
+          // Une image perdue laisse la precedente a l ecran ; perdre la
+          // tranche entiere serait bien pire.
+          manquantes++;
+        }
       }
 
       const frame = buildFrame(project, t, (clip) => sources.get(clip.id) || null, W, H);
@@ -126,7 +142,13 @@ self.onmessage = async (ev) => {
 
     await encoder.flush();
     if (encErr) throw encErr;
-    self.postMessage({ type: 'done', index: seg.index, chunks, description }, chunks.map((c) => c.data.buffer));
+    const attendues = seg.last - seg.first;
+    if (chunks.length !== attendues) {
+      throw new Error(`tranche ${seg.index} : ${chunks.length} images encodees sur `
+        + `${attendues} attendues`);
+    }
+    self.postMessage({ type: 'done', index: seg.index, chunks, description, manquantes },
+      chunks.map((c) => c.data.buffer));
   } catch (e) {
     self.postMessage({ type: 'error', index: seg.index, message: String((e && e.message) || e) });
   } finally {

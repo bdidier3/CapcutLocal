@@ -359,6 +359,7 @@ export class Exporter {
    * alors le chemin classique.
    */
   async _runParallel(o, onProgress, ctx) {
+    if (o.monocoeur) return null;          // choix explicite de l'utilisateur
     const { project, from, total, resolved, timescale, audioJob, sink, t0Wall } = ctx;
     const nCores = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
     const nSeg = Math.max(2, Math.min(PARALLEL_MAX, nCores));
@@ -426,6 +427,9 @@ export class Exporter {
     for (const w of workers) { try { w.terminate(); } catch (_) {} }
     if (this.cancelled) throw new Error('annule');
 
+    const perdues = done.reduce((n, d) => n + ((d && d.manquantes) || 0), 0);
+    if (perdues) console.warn(`export : ${perdues} image(s) source illisible(s), remplacee(s) par la precedente`);
+
     const description = (done.find((d) => d && d.description) || {}).description;
     if (!description) throw new Error("L'encodeur n'a pas fourni de description de flux.");
 
@@ -460,6 +464,11 @@ export class Exporter {
       if (this.cancelled) throw new Error('annule');
     }
     if (audio) while (audioIdx < audio.frames.length) { sink.push(1, audio.frames[audioIdx].data, 1024, true); audioIdx++; }
+
+    if (videoCount !== total) {
+      throw new Error(`export incomplet : ${videoCount} images ecrites sur ${total}.`
+        + ' Les tranches ne se recollent pas.');
+    }
 
     onProgress({ phase: 'Finalisation', ratio: 0.985, frame: total, total });
     const res = await sink.end();

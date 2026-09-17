@@ -802,3 +802,9 @@ label.wide input{width:100%}
 /* Pastille de place occupee : discrete tant que le cache reste raisonnable,
    plus visible au-dela d'un demi-giga, pour signaler sans harceler. */
 #btnStock.gros { color: var(--warn, #e0a33e); }
+
+/* Case a cocher sur une ligne, texte a droite : le libelle est long et une
+   disposition en colonne le couperait en deux. */
+.dlg label.case{display:flex;align-items:flex-start;gap:8px;flex-direction:row;cursor:pointer}
+.dlg label.case input{margin-top:2px;flex:0 0 auto}
+.dlg label.case small{color:var(--faint)}

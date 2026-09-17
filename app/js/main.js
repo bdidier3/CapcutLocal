@@ -2108,6 +2108,11 @@ dlgEx.addEventListener('close', async () => {
       quality: $('#exQual').value,
       sampleRate: p.sampleRate || 48000, gop,
       from: range.from, to: range.to,
+      // Le decoupage en tranches est ce qui rend l'export rapide, mais c'est
+      // aussi ce qui sollicite le plus la machine : autant de decodeurs et
+      // d'encodeurs ouverts en meme temps qu'il y a de tranches. Sur certaines
+      // configurations cela suffit a faire decrocher le materiel.
+      monocoeur: $('#exSeul').checked,
     }, onExportProgress);
     const secs = (performance.now() - t0) / 1000;
     $('#opTitle').textContent = '✔ Export termine';

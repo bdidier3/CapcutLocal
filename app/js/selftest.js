@@ -116,7 +116,7 @@ function indexDeCouleur(r, g, b) {
  * que constater que « ca a l'air bon », ce qui ne prouve rien sur un
  * enchainement de plans courts.
  */
-async function makeCountedVideo(path, { W = 640, H = 360, fps = 30, frames = 70, base = 0 } = {}) {
+async function makeCountedVideo(path, { W = 640, H = 360, fps = 30, frames = 70, base = 0, hz = 0 } = {}) {
   const cv = new OffscreenCanvas(W, H);
   const ctx = cv.getContext('2d');
   const vcfg = await resolveVideoConfig({ codec: 'avc', width: W, height: H, fps, bitrate: 16e6 });
@@ -144,20 +144,43 @@ async function makeCountedVideo(path, { W = 640, H = 360, fps = 30, frames = 70,
   }
   await enc.flush(); enc.close();
 
+  // Un son continu, sans le moindre silence, d une hauteur propre a chaque
+  // source. Toute coupure entendue dans l export vient donc du montage, et
+  // jamais de la matiere premiere.
+  let audio = null;
+  if (hz > 0) {
+    const sr = 48000;
+    const len = Math.ceil((frames / fps) * sr);
+    const g = new Float32Array(len);
+    for (let i = 0; i < len; i++) g[i] = 0.5 * Math.sin((2 * Math.PI * hz * i) / sr);
+    audio = await encodeAac({ data: [g, g], length: len, sampleRate: sr }, 128000);
+  }
+
   const beg = await fetch(`/api/export/begin?tk=${TK}`, {
     method: 'POST',
     body: JSON.stringify({
       path,
       video: { codec: 'avc', width: W, height: H, timescale: fps * 1000, description: desc ? b64(desc) : '' },
-      audio: null,
+      audio: audio ? { sampleRate: audio.sampleRate, channels: 2,
+        description: audio.description ? b64(audio.description) : null } : null,
     }),
   }).then((x) => x.json());
   if (!beg.session) throw new Error('begin: ' + JSON.stringify(beg));
   const parts = [];
-  for (const c of chunks) parts.push(...rec(0, c.data, 1000, c.key));
+  let ai = 0;
+  for (let k = 0; k < chunks.length; k++) {
+    parts.push(...rec(0, chunks[k].data, 1000, chunks[k].key));
+    if (audio) {
+      const tv = (k + 1) / fps;
+      while (ai < audio.frames.length && (ai * 1024) / audio.sampleRate <= tv) {
+        parts.push(...rec(1, audio.frames[ai].data, 1024, true)); ai++;
+      }
+    }
+  }
+  if (audio) while (ai < audio.frames.length) { parts.push(...rec(1, audio.frames[ai].data, 1024, true)); ai++; }
   await fetch(`/api/export/append?tk=${TK}&s=${beg.session}`, { method: 'POST', body: new Blob(parts) });
   await fetch(`/api/export/end?tk=${TK}&s=${beg.session}`, { method: 'POST' });
-  return { path, W, H, fps, frames, base };
+  return { path, W, H, fps, frames, base, hasAudio: !!audio };
 }
 
 // ----------------------------------------------------------- generation media
@@ -1010,6 +1033,183 @@ async function runAll() {
     try { const lose = rend.gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); } catch (_) {}
     cvGl.remove();
   } catch (e) { check('montage a plans courts', false, (e && e.stack ? e.stack.split('\n')[0] : e.message)); }
+
+
+  // ------------------------------------------- T11 export reparti sur plusieurs coeurs
+  //
+  // Au-dela d'une certaine duree, l'export ne se fait plus image par image sur
+  // le thread principal : la timeline est decoupee en tranches confiees a des
+  // Web Workers. C'est un tout autre chemin de code, et c'est celui que prend
+  // n'importe quel vrai montage — les tests precedents, qui durent deux ou
+  // trois secondes, restent tous en deca du seuil et ne l'atteignent jamais.
+  head('T11 — export reparti (plusieurs coeurs) : exactitude image par image');
+  try {
+    const FPS = 30, W = 640, H = 360;
+    const srcs = [];
+    for (let s = 0; s < 3; s++) {
+      srcs.push(await makeCountedVideo(TMP + `cutlocal-par-${s}.mp4`,
+        { W, H, fps: FPS, frames: 70, base: 1 + s * 70, hz: 220 * (s + 1) }));
+    }
+    const fichiers = [];
+    for (let s = 0; s < 3; s++) fichiers.push(await fetchAsFile(srcs[s].path, `p${s}.mp4`));
+    const mp4s = [];
+    for (const f of fichiers) mp4s.push(await Mp4File.open(blobReader(f)));
+
+    const project = newProject({ width: W, height: H, fps: FPS });
+    project.tracks[0].magnetic = true;
+    const medias = srcs.map((s, i) => ({
+      id: 'mp' + i, name: `p${i}.mp4`, kind: 'video', width: W, height: H,
+      fps: FPS, duration: s.frames / FPS, hasVideo: true, hasAudio: true,
+    }));
+    project.media = medias;
+
+    // Un montage assez long pour declencher le decoupage, fait de plans courts
+    // pris un peu partout : c'est la situation ou les tranches se recollent le
+    // plus souvent, donc celle qui reveille les defauts de raccord.
+    let graine = 12345;
+    const alea = (n) => { graine = (graine * 1103515245 + 12345) & 0x7fffffff; return graine % n; };
+    const plan = [];
+    let cadre = 0;
+    while (cadre < 420) {
+      const s = alea(3);
+      const n = 3 + alea(10);
+      const dep = alea(70 - n);
+      plan.push([s, dep, n]);
+      cadre += n;
+    }
+
+    let t0c = 0;
+    const attendu = [];
+    for (const [s, dep, n] of plan) {
+      project.tracks[0].clips.push(newClip({
+        mediaId: 'mp' + s, t0: t0c, dur: n / FPS, in: dep / FPS, speed: 1,
+      }));
+      for (let k = 0; k < n; k++) attendu.push({ src: s, img: dep + k, code: 1 + s * 70 + dep + k });
+      t0c += n / FPS;
+    }
+    const total = attendu.length;
+
+    const urls = new Map();
+    const lib = {
+      files: new Map(medias.map((m, i) => [m.id, fichiers[i]])),
+      file: (id) => fichiers[medias.findIndex((m) => m.id === id)] || null,
+      url(id) {
+        if (!urls.has(id)) urls.set(id, URL.createObjectURL(fichiers[medias.findIndex((m) => m.id === id)]));
+        return urls.get(id);
+      },
+      mp4Of: async (id) => mp4s[medias.findIndex((m) => m.id === id)] || null,
+      apercus: new Map(),
+      urlApercu(id) { return this.url(id); },
+    };
+    const store = { project, playhead: 0, seek(t) { this.playhead = t; } };
+
+    const outPath = TMP + 'cutlocal-parallele.mp4';
+    const res = await new Exporter(store, lib, TK).run({
+      path: outPath, width: W, height: H, fps: FPS, codec: 'avc',
+      bitrate: 20e6, audioBitrate: 128000, withAudio: true, sampleRate: 48000,
+      gop: 30, from: 0, to: total / FPS,
+    }, () => {});
+
+    // Sans cette verification, le test pourrait passer en n'ayant jamais quitte
+    // le chemin sequentiel — et ne rien prouver du tout.
+    check('export reparti : le decoupage a bien eu lieu', (res.parallele || 1) > 1,
+      `${plan.length} plans, ${total} images, ${res.parallele || 1} tranche(s)`);
+    check('export reparti : toutes les images produites', res.frames === total,
+      `${res.frames} / ${total}`);
+
+    const relu = await fetchAsFile(outPath, 'par.mp4');
+    const m4 = await Mp4File.open(blobReader(relu));
+    const vt = m4.videoTrack;
+    check('export reparti : relisible', !!vt && vt.samples.length === total,
+      vt ? `${vt.samples.length} images / ${total}` : 'illisible');
+
+    if (vt) {
+      const cv = new OffscreenCanvas(W, H);
+      const c2 = cv.getContext('2d', { willReadFrequently: true });
+      const lus = new Array(total).fill(null);
+      await new Promise((fini, rate) => {
+        let n = 0;
+        const d = new VideoDecoder({
+          output: (fr) => {
+            const k = Math.round((fr.timestamp / 1e6) * FPS);
+            c2.drawImage(fr, 0, 0);
+            fr.close();
+            const px = c2.getImageData(W >> 1, H >> 1, 1, 1).data;
+            if (k >= 0 && k < total) lus[k] = indexDeCouleur(px[0], px[1], px[2]);
+            if (++n >= total) fini();
+          },
+          error: rate,
+        });
+        d.configure({ codec: vt.codec, codedWidth: vt.width, codedHeight: vt.height, description: vt.description });
+        m4.readSamples(vt, 0, total).then((ech) => {
+          for (const e of ech) {
+            const s = e.sample;
+            d.decode(new EncodedVideoChunk({
+              type: s.sync ? 'key' : 'delta',
+              timestamp: Math.round((s.cts / vt.timescale) * 1e6),
+              duration: Math.round((s.dur / vt.timescale) * 1e6),
+              data: e.data,
+            }));
+          }
+          d.flush().then(() => fini()).catch(rate);
+        });
+      });
+
+      const faux = [];
+      for (let k = 0; k < total; k++) {
+        if (lus[k] !== attendu[k].code) faux.push({ k, lu: lus[k], att: attendu[k].code });
+      }
+      check('export reparti : chaque image vient du bon endroit', faux.length === 0,
+        faux.length
+          ? `${faux.length} fausse(s) sur ${total} — ex. image ${faux[0].k} : lu ${faux[0].lu}, attendu ${faux[0].att}`
+          : `${total}/${total}`);
+    }
+
+    // ---------- le son doit etre continu d'un bout a l'autre
+    // Chaque source sonne sans la moindre interruption : un silence dans
+    // l'export ne peut donc venir que du montage. On cherche le plus long et
+    // on le compare a la duree d'une image — en deca, personne ne l'entendrait.
+    const at = m4.audioTrack;
+    check('export reparti : piste audio presente', !!at,
+      at ? `${at.codec} ${at.sampleRate}Hz, ${at.samples.length} trames` : 'absente');
+    if (at) {
+      const dureeAudio = (at.samples.length * 1024) / at.sampleRate;
+      const dureeVideo = total / FPS;
+      check('export reparti : son et image de meme duree',
+        Math.abs(dureeAudio - dureeVideo) < 0.1,
+        `${dureeAudio.toFixed(3)} s de son / ${dureeVideo.toFixed(3)} s de video`);
+
+      const ac = new OfflineAudioContext(1, 128, 48000);
+      const buf = await ac.decodeAudioData(await relu.arrayBuffer());
+      const pcm = buf.getChannelData(0);
+      const sr = buf.sampleRate;
+      const fen = Math.round(sr * 0.01);            // fenetres de 10 ms
+      let creux = 0, pire = 0, ouPire = 0;
+      for (let i = 0; i + fen <= pcm.length; i += fen) {
+        let crete = 0;
+        for (let k = i; k < i + fen; k++) { const v = Math.abs(pcm[k]); if (v > crete) crete = v; }
+        if (crete < 0.02) { creux++; if (creux > pire) { pire = creux; ouPire = i / sr; } }
+        else creux = 0;
+      }
+      const silenceMs = pire * 10;
+      check('export reparti : aucune coupure de son', silenceMs <= 40,
+        pire ? `plus long silence ${silenceMs} ms vers ${ouPire.toFixed(2)} s` : 'aucun silence');
+    }
+
+    // ---------- le meme montage, decoupage desactive
+    // C'est la soupape offerte a l'utilisateur quand sa machine ne suit pas :
+    // elle doit vraiment couper le decoupage, et rendre le meme nombre
+    // d'images. Sans ce controle, la case pourrait ne rien faire du tout.
+    const res1 = await new Exporter(store, lib, TK).run({
+      path: TMP + 'cutlocal-monocoeur.mp4', width: W, height: H, fps: FPS, codec: 'avc',
+      bitrate: 20e6, audioBitrate: 128000, withAudio: true, sampleRate: 48000,
+      gop: 30, from: 0, to: total / FPS, monocoeur: true,
+    }, () => {});
+    check('export sur un seul coeur : decoupage bien desactive',
+      (res1.parallele || 1) === 1, `${res1.parallele || 1} tranche(s)`);
+    check('export sur un seul coeur : meme nombre d images',
+      res1.frames === total, `${res1.frames} / ${total}`);
+  } catch (e) { check('export reparti', false, (e && e.stack ? e.stack.split('\n')[0] : e.message)); }
 
   report(T0);
 }
