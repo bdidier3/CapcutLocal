@@ -13,7 +13,7 @@ import { Inspector } from './inspector.js';
 import { MaskOverlay } from './maskoverlay.js';
 import { Exporter, RES_PRESETS, FPS_PRESETS, CODECS, suggestBitrate, pickFastDefault } from './exporter.js';
 import { invalidateText } from './compose.js';
-import { idbSave, idbGet, idbList } from './idb.js';
+import { idbSave, idbGet, idbList, idbViderCopies } from './idb.js';
 import { detecterTemps } from './beats.js';
 import { Home } from './home.js';
 import { reverseClip, freezeFrame, trimBefore, trimAfter } from './tools.js';
@@ -592,6 +592,12 @@ async function pollDownload() {
         fichiers.push(new File([blob], f.name, { type: blob.type || '' }));
       }
       const added = await lib.add(fichiers);
+      // le fichier est sur le disque : le projet garde son chemin plutot
+      // qu'une copie dans le navigateur
+      for (const f of liste) {
+        const m = added.find((x) => x.name === f.name);
+        if (m) m.chemin = f.path;
+      }
       $('#dlBar').style.width = '100%';
       // Ce qu'on telecharge, c'est pour s'en servir : on le pose directement
       // sur la timeline, a la suite. Sinon il fallait aller le rechercher dans
@@ -765,8 +771,16 @@ function removeMedia(id) {
 async function importFiles(list) {
   if (!list || !list.length) return;
   const t = toast('Import…', 'info', 60000);
-  const added = await lib.add(list);
+  const tous = await lib.add(list);
   t.remove();
+  // un media rebranche sur son fichier n'est pas repose sur la timeline
+  const relies = tous.filter((m) => m.relie);
+  for (const m of relies) delete m.relie;
+  const added = tous.filter((m) => !relies.includes(m));
+  if (relies.length) {
+    store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
+    toast(`${relies.length} video(s) retrouvee(s)`, 'ok');
+  }
   if (!added.length) return;
   // Ce qu'on importe, c'est pour le monter : on le pose a la suite sur la
   // timeline. Avant, seul le tout premier fichier y allait et les suivants
@@ -1809,9 +1823,42 @@ const stockCoches = new Set();
  * separement parce qu'elles ne se valent pas — les deux dernieres se
  * refabriquent, la premiere non.
  */
+/**
+ * Place prise par CutLocal DANS LE PROFIL DU NAVIGATEUR (disque C).
+ *
+ * Les anciennes versions y rangeaient une copie complete de chaque video
+ * importee — invisible depuis l'explorateur, et facilement des dizaines de Go.
+ */
+async function poidsNavigateur() {
+  try {
+    const e = await navigator.storage.estimate();
+    return e.usage || 0;
+  } catch (_) { return 0; }
+}
+
+/** Releve serveur + navigateur, presente comme une seule liste. */
+async function releveComplet() {
+  const r = await fetch(`/api/stockage?tk=${TK}`).then((x) => x.json()).catch(() => null);
+  if (!r) return null;
+  const nav = await poidsNavigateur();
+  // en dessous de quelques Mo, ce ne sont que les projets eux-memes
+  const copies = nav > 8 * 1024 * 1024 ? nav : 0;
+  r.categories.unshift({
+    cle: 'copies',
+    titre: 'Copies des videos dans le navigateur',
+    note: 'Laissees par les anciennes versions, sur le disque C. Vos fichiers d’origine ne sont pas touches ; '
+      + 'les anciens projets qui en dependent retrouveront leurs videos par un nouvel import.',
+    refabricable: false,
+    octets: copies,
+    nombre: copies ? 1 : 0,
+  });
+  r.total += copies;
+  return r;
+}
+
 async function chargerStockage() {
   const liste = $('#stStockListe');
-  const r = await fetch(`/api/stockage?tk=${TK}`).then((x) => x.json()).catch(() => null);
+  const r = await releveComplet();
   if (!r) { $('#stStockTotal').textContent = 'indisponible'; return; }
   $('#stStockTotal').textContent = fmtSize(r.total);
   majChiffreStock(r.total);
@@ -1824,7 +1871,7 @@ async function chargerStockage() {
     cb.onchange = () => { if (cb.checked) stockCoches.add(c.cle); else stockCoches.delete(c.cle); };
     liste.append(el('div', { class: 'stock-item' + (vide ? ' vide' : '') }, cb,
       el('span', { class: 'nm' },
-        el('span', { text: `${c.titre} — ${c.nombre} fichier(s)` }),
+        el('span', { text: c.cle === 'copies' ? c.titre : `${c.titre} — ${c.nombre} fichier(s)` }),
         el('small', { text: c.note })),
       el('span', { class: 'sz', text: fmtSize(c.octets) })));
   }
@@ -1835,15 +1882,38 @@ async function nettoyerStockage() {
   if (!cles.length) return toast('Cochez ce que vous voulez effacer', 'warn');
   if (cles.includes('medias')
     && !confirm('Effacer les videos telechargees ? Les projets qui s\'en servent ne les retrouveront plus.')) return;
+  if (cles.includes('copies')
+    && !confirm('Effacer les copies des videos gardees par le navigateur ?\n\n'
+      + 'Vos fichiers video d’origine ne sont pas touches. Les anciens projets qui ne '
+      + 'tenaient qu’a ces copies afficheront leurs videos comme introuvables : '
+      + 'importez a nouveau le meme fichier pour les rebrancher.')) return;
   $('#stStockNettoyer').disabled = true;
   $('#stStockEtat').textContent = 'suppression…';
-  const r = await fetch(`/api/stockage/vider?tk=${TK}`, {
-    method: 'POST', body: JSON.stringify({ categories: cles }),
-  }).then((x) => x.json()).catch(() => null);
+  let libereNav = 0;
+  if (cles.includes('copies')) {
+    const avant = await poidsNavigateur();
+    await idbViderCopies().catch(() => 0);
+    // les fichiers du projet ouvert qui n'etaient que des copies ne sont plus lisibles
+    for (const id of [...lib.depuisCopie]) { lib.files.delete(id); lib.urls.delete(id); lib.mp4.delete(id); }
+    lib.depuisCopie.clear();
+    player.disposeAll(); player.invalidate(); store.changed('media');
+    // Le navigateur n'efface ses fichiers qu'une fois relaches — en pratique a
+    // sa prochaine ouverture (verifie : 193 Mo -> 0,3 Mo apres redemarrage).
+    // On annonce donc ce qui VA etre libere.
+    libereNav = avant;
+  }
+  const pourServeur = cles.filter((c) => c !== 'copies');
+  const r = pourServeur.length
+    ? await fetch(`/api/stockage/vider?tk=${TK}`, {
+      method: 'POST', body: JSON.stringify({ categories: pourServeur }),
+    }).then((x) => x.json()).catch(() => null)
+    : { ok: true, octets: 0, echecs: 0 };
+  if (r && r.ok) r.octets += libereNav;
   $('#stStockNettoyer').disabled = false;
   if (!r || !r.ok) { $('#stStockEtat').textContent = 'echec'; return; }
   $('#stStockEtat').textContent = `${fmtSize(r.octets)} liberes`
-    + (r.echecs ? ` (${r.echecs} fichier(s) en cours d'utilisation)` : '');
+    + (r.echecs ? ` (${r.echecs} fichier(s) en cours d'utilisation)` : '')
+    + (libereNav ? ' — la place du navigateur est rendue a sa prochaine ouverture' : '');
   stockCoches.clear();
   // les copies effacees ne doivent plus etre montrees comme disponibles
   if (cles.includes('apercus')) { lib.apercus.clear(); player.invalidate(); }
@@ -1869,7 +1939,7 @@ function majChiffreStock(octets) {
 
 /** Releve discret de la place occupee, sans ouvrir la fenetre. */
 async function releverStockage() {
-  const r = await fetch(`/api/stockage?tk=${TK}`).then((x) => x.json()).catch(() => null);
+  const r = await releveComplet();
   if (r) majChiffreStock(r.total);
 }
 
@@ -2280,10 +2350,20 @@ const scheduleAutosave = debounce(() => saveProject(true), 4000);
 async function saveProject(silent) {
   try {
     if (!projectId) projectId = 'p' + Math.random().toString(36).slice(2, 10);
+    // On ne range PAS les videos dans le navigateur : il en garderait une copie
+    // complete dans son profil (verifie : des dizaines de Go sur le disque C).
+    // On garde une POIGNEE vers le fichier d'origine — quelques octets — et le
+    // navigateur redemande l'autorisation de le lire a la reouverture.
+    // Seuls les medias d'anciens projets, qui n'existent plus que sous forme de
+    // copie, y restent tant qu'ils ne sont pas rebranches sur leur fichier.
     const files = {};
+    const handles = {};
     for (const m of store.project.media) {
+      const h = lib.handles.get(m.id);
+      if (h) { handles[m.id] = h; continue; }
+      if (m.chemin) continue;                      // video telechargee : on connait son chemin
       const f = lib.files.get(m.id);
-      if (f) files[m.id] = f;
+      if (f && lib.depuisCopie.has(m.id)) files[m.id] = f;
     }
     // vignette : premiere image utile du projet
     let thumb = null;
@@ -2294,6 +2374,7 @@ async function saveProject(silent) {
       title: store.project.name || 'Projet sans titre',
       project: JSON.parse(JSON.stringify(store.project)),
       files,
+      handles,
       playhead: store.playhead,
       thumb: thumb || (prev && prev.thumb) || null,
       savedAt: Date.now(),
@@ -2319,20 +2400,82 @@ async function loadProject(id) {
   relayoutAll(store.project);   // referme les trous eventuels des pistes collees
   store.selection = { clipIds: [], maskId: null };
   store.undoStack.length = 0; store.redoStack.length = 0;
-  for (const [id2, f] of Object.entries(rec.files || {})) if (f) lib.files.set(id2, f);
+  lib.handles.clear(); lib.depuisCopie.clear();
+  for (const [id2, f] of Object.entries(rec.files || {})) {
+    if (f) { lib.files.set(id2, f); lib.depuisCopie.add(id2); }
+  }
+  const enAttente = await rebrancherFichiers(rec.handles || {});
   store.seek(rec.playhead || 0);
   store.emit('reload');
   store.changed();
   timeline.fit(); syncZoomSlider();
   const miss = lib.missing();
-  if (miss.length) toast(`${miss.length} fichier(s) introuvable(s) — reimportez-les`, 'warn', 6000);
+  if (enAttente.length) demanderAcces(enAttente);
+  else if (miss.length) toast(`${miss.length} fichier(s) introuvable(s) — reimportez-les`, 'warn', 6000);
   // Les copies d'apercu survivent aux sessions : on les rebranche, et on
   // fabrique celles qui manquent.
   preparerApercus(store.project.media);
 }
 
+/**
+ * Rouvre les videos d'un projet a partir de leurs poignees.
+ *
+ * Le navigateur ne laisse relire un fichier qu'avec l'accord de l'utilisateur.
+ * Ouvert d'un clic, le projet peut le demander tout de suite ; sinon (ou si la
+ * demande echoue faute de clic recent), on renvoie les poignees en attente.
+ * Les videos telechargees, elles, sont relues a leur chemin sur le disque.
+ */
+async function rebrancherFichiers(handles) {
+  const enAttente = [];
+  for (const [mid, h] of Object.entries(handles)) {
+    if (!h || typeof h.getFile !== 'function') continue;
+    lib.handles.set(mid, h);
+    try {
+      let p = await h.queryPermission({ mode: 'read' });
+      if (p !== 'granted') {
+        try { p = await h.requestPermission({ mode: 'read' }); } catch (_) { p = 'prompt'; }
+      }
+      if (p === 'granted') {
+        lib.files.set(mid, await h.getFile());
+        lib.depuisCopie.delete(mid);
+      } else if (!lib.files.has(mid)) enAttente.push([mid, h]);
+    } catch (_) {
+      if (!lib.files.has(mid)) enAttente.push([mid, h]);   // fichier deplace ou efface
+    }
+  }
+  for (const m of store.project.media) {
+    if (lib.files.has(m.id) || !m.chemin) continue;
+    try {
+      const r = await fetch(`/media?tk=${TK}&p=${encodeURIComponent(m.chemin)}`);
+      if (r.ok) { const b = await r.blob(); lib.files.set(m.id, new File([b], m.name, { type: b.type || '' })); }
+    } catch (_) {}
+  }
+  return enAttente;
+}
+
+/** Autorisation refusee faute de clic : le prochain clic la redemande. */
+function demanderAcces(enAttente) {
+  const t = toast(`Cliquez n'importe ou pour autoriser l'acces a ${enAttente.length} video(s) du projet`, 'info', 60000);
+  const reessayer = async () => {
+    let ok = 0;
+    for (const [mid, h] of enAttente) {
+      try {
+        const p = await h.requestPermission({ mode: 'read' });
+        if (p === 'granted') { lib.files.set(mid, await h.getFile()); lib.depuisCopie.delete(mid); ok++; }
+      } catch (_) {}
+    }
+    t.remove();
+    store.changed('media'); player.invalidate(); timeline.draw();
+    const miss = lib.missing().length;
+    if (miss) toast(`${miss} fichier(s) introuvable(s) — reimportez-les`, 'warn', 6000);
+    else if (ok) toast('Videos du projet retrouvees', 'ok');
+  };
+  document.addEventListener('pointerdown', reessayer, { once: true, capture: true });
+}
+
 function newBlankProject(name) {
   player.pause(); player.disposeAll();
+  lib.handles.clear(); lib.depuisCopie.clear();
   lib.files.clear(); lib.urls.clear(); lib.mp4.clear(); lib.strips.clear(); lib.waves.clear();
   if (lib._sons) lib._sons.clear();
   lib.apercus.clear();

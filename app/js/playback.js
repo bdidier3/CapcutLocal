@@ -43,7 +43,7 @@ const PREP_PX = 4 * 1920 * 1080;
 
 // Definition de la copie d'apercu : son cout de decodage remplace celui de
 // l'original des qu'elle est en service.
-const PX_APERCU = 1920 * 1080;
+const PX_APERCU = 1280 * 720;
 
 /** Delai de preparation adapte au poids de ce qu'on va REELLEMENT decoder. */
 function leadPour(px) {

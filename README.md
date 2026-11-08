@@ -981,14 +981,24 @@ Audio : MP3, WAV, M4A, AAC, FLAC, OGG, OPUS. Images : PNG, JPG, WEBP, BMP, GIF.
 Les projets sont enregistrés automatiquement dans le navigateur (IndexedDB). « Ouvrir »
 liste les projets enregistrés.
 
-Pour pouvoir rouvrir un projet sans réimporter, Chrome garde **une copie** de chaque
-média dans son profil — c'est ainsi qu'IndexedDB conserve un fichier, contrairement
-à ce qu'on pourrait croire. Chaque média n'est copié **qu'une fois**, partagé entre
-les projets qui l'utilisent, et effacé quand plus aucun projet ne s'en sert.
-Auparavant, l'enregistrement automatique — quelques secondes après chaque
-modification — recopiait tous les rushes du projet à chaque fois, en tâche de fond
-pendant le montage. Mesuré : 100 Mo réécrits par enregistrement, contre 0 octet
-maintenant (l'enregistrement suivant prend moins d'une milliseconde).
+**Aucune copie de vos vidéos n'est faite.** Un projet ne garde qu'une *autorisation
+d'accès* au fichier d'origine (quelques octets) ; à la réouverture, le navigateur vous
+demande simplement d'autoriser à nouveau la lecture. Les vidéos téléchargées par lien
+sont retrouvées à leur emplacement sur le disque.
+
+Les anciennes versions rangeaient au contraire une **copie complète** de chaque vidéo
+importée dans le profil du navigateur, sur le disque C, invisible depuis l'explorateur
+— mesuré sur une machine de test : plus de 20 Go. Le bouton de place occupée (en haut)
+affiche ces copies sous « Copies des vidéos dans le navigateur » et permet de les
+effacer ; la place est rendue à la prochaine ouverture du navigateur. Un ancien projet
+qui en dépendait affiche alors ses vidéos comme introuvables : importez à nouveau le
+même fichier, il est **rebranché** sur son clip, sans en ajouter un second.
+
+Les copies d'aperçu ne sont plus fabriquées pour les MP4 / MOV, que l'aperçu décode
+désormais directement en matériel (4K 60 compris) : elles coûtaient une copie
+temporaire du rush entier, puis des centaines de Mo gardés. Elles ne servent plus
+qu'aux formats que WebCodecs ne lit pas (WebM, MKV, AVI…), en 1280 px et sans son —
+plus de deux fois plus légères — avec un plafond total de 1 Go.
 
 Si vous déplacez ou supprimez un fichier source, le clip apparaît comme introuvable :
 réimportez le fichier au même nom.

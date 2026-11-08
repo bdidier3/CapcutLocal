@@ -210,6 +210,30 @@ async function menageFichiers() {
   for (const k of morts) ranges.delete(k);
 }
 
+/**
+ * Efface TOUTES les copies de videos gardees dans le navigateur.
+ *
+ * Les projets restent, mais ceux qui n'ont que ces copies (enregistres avant
+ * les poignees de fichier) devront retrouver leurs videos : un nouvel import
+ * du meme fichier les rebranche.
+ * @returns {Promise<number>} nombre de projets allege
+ */
+export async function idbViderCopies() {
+  const tous = await tx('readonly', (s) => s.getAll()).catch(() => []);
+  let n = 0;
+  for (const r of tous || []) {
+    const avait = Object.keys(r.files || {}).length || Object.keys(r.fileKeys || {}).length;
+    if (!avait) continue;
+    r.files = {};
+    r.fileKeys = {};
+    await tx('readwrite', (s) => s.put(r));
+    n++;
+  }
+  await tx('readwrite', (s) => s.clear(), FICHIERS).catch(() => {});
+  ranges.clear();
+  return n;
+}
+
 export async function idbDelete(id) {
   await tx('readwrite', (s) => s.delete(id));
   try { await tx('readwrite', (s) => s.delete(id), META); } catch (_) {}

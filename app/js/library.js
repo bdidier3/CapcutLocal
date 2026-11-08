@@ -39,6 +39,9 @@ export class Library {
     this.strips = new Map();     // mediaId -> {count, bitmaps:[]}
     this.waves = new Map();      // mediaId -> Float32Array (enveloppe)
     this.apercus = new Map();    // mediaId -> url de la copie allegee
+    // medias dont le fichier vient d'une COPIE gardee par le navigateur (anciens
+    // projets) : ce sont les seuls qu'on continue d'y ranger
+    this.depuisCopie = new Set();
     this._blobsApercu = new Map();
     this._mp4Apercu = new Map();
     this._apercuEnCours = new Set();
@@ -135,10 +138,20 @@ export class Library {
     return true;
   }
 
-  /** Ce media est-il assez lourd pour meriter une copie d'apercu ? */
+  /**
+   * Ce media a-t-il besoin d'une copie d'apercu ?
+   *
+   * Plus pour les MP4 / MOV : l'apercu les decode desormais en materiel via
+   * WebCodecs, 4K 60 compris (mesure : ~178 rendus/s sur un rush 4K 60, coupes
+   * rapides comprises). La copie y coutait cher pour presque rien : une copie
+   * TEMPORAIRE du rush entier pendant sa fabrication, puis des centaines de Mo
+   * gardes sur le disque. Elle ne reste utile que pour les formats que
+   * WebCodecs ne sait pas lire image par image (WebM, MKV, AVI…), ou l'apercu
+   * retomberait sinon sur le lecteur du navigateur, bien plus lent.
+   */
   static meriteApercu(media) {
     if (!media || !media.hasVideo || media.kind === 'image') return false;
-    return (media.width || 0) * (media.height || 0) > 2304000;   // au-dela de ~1080p
+    return !media.demuxable;
   }
 
   /**
@@ -259,7 +272,20 @@ export class Library {
       if (!kind) { toast(`Format non reconnu : ${file.name}`, 'warn'); continue; }
       // deja importe ? (meme nom + meme taille)
       const dup = this.store.project.media.find((m) => m.name === file.name && m.size === file.size);
-      if (dup) { added.push(dup); continue; }
+      if (dup) {
+        // Media deja connu mais introuvable (ou servi par une copie du
+        // navigateur) : ce nouvel import le REBRANCHE sur le vrai fichier.
+        if (!this.files.has(dup.id) || this.depuisCopie.has(dup.id) || (handle && !this.handles.has(dup.id))) {
+          this.files.set(dup.id, file);
+          if (handle) this.handles.set(dup.id, handle);
+          this.depuisCopie.delete(dup.id);
+          this.urls.delete(dup.id); this.mp4.delete(dup.id);
+          if (this._sons) this._sons.delete(dup.id);
+          dup.relie = true;
+        }
+        added.push(dup);
+        continue;
+      }
 
       const id = uid('md');
       this.files.set(id, file);
@@ -602,6 +628,7 @@ export class Library {
     this.urls.delete(mediaId);
     this.files.delete(mediaId);
     this.handles.delete(mediaId);
+    this.depuisCopie.delete(mediaId);
     this.mp4.delete(mediaId);
     const son = this._sons && this._sons.get(mediaId);
     if (son && son.seul) { try { URL.revokeObjectURL(son.url); } catch (_) {} }

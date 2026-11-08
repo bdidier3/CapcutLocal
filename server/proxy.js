@@ -23,11 +23,10 @@ const os = require('os');
 
 // Cote le plus long de la copie.
 //
-// 1920 n'est pas choisi au hasard : c'est exactement ce que le lecteur rend
-// pour un projet 4K. Descendre plus bas rendrait l'apercu flou sans rien faire
-// gagner — l'encodage prend le meme temps, l'essentiel du cout etant la lecture
-// du fichier d'origine.
-const COTE_MAX = 1920;
+// 1280 plutot que 1920 : la copie ne sert plus qu'aux formats que WebCodecs ne
+// sait pas lire (WebM, MKV...), pour un apercu, et elle pese plus de deux fois
+// moins sur le disque. L'export repart toujours du fichier d'origine.
+const COTE_MAX = 1280;
 // Une image cle chaque demi-seconde : c'est ce qui rend les sauts instantanes,
 // et c'est exactement ce dont un montage a coupes rapides a besoin.
 const GOP = 30;
@@ -95,10 +94,11 @@ async function construire(source, cacheDir, cle) {
     // de telephone est a debit variable ; laisser ffmpeg regulariser la cadence
     // decalerait l'apercu d'une image par endroits.
     '-fps_mode', 'passthrough',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
     '-g', String(GOP), '-keyint_min', String(GOP), '-sc_threshold', '0',
     '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+    // Pas de son : celui de l'apercu vient du fichier d'origine.
+    '-an',
     '-movflags', '+faststart',
     // on ecrit dans un fichier temporaire : sans cette indication ffmpeg
     // cherche le format d'apres l'extension « .part » et abandonne

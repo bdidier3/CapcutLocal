@@ -113,7 +113,9 @@ function vider(cacheDir, cles) {
 //
 // Les videos telechargees ne sont JAMAIS comptees ici ni effacees d'office :
 // elles ne se refabriquent pas, et un projet qui s'en sert les perdrait.
-const BUDGET = 2 * 1024 * 1024 * 1024;
+// Un giga suffit desormais : les copies ne concernent plus que les formats
+// que WebCodecs ne lit pas, et elles sont deux fois plus legeres.
+const BUDGET = 1 * 1024 * 1024 * 1024;
 
 /** Fichiers d'un cache, du moins recemment utilise au plus recent. */
 function parAnciennete(dir, filtre) {
