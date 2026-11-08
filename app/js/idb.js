@@ -1,5 +1,13 @@
-// Persistance locale des projets (IndexedDB). Les objets File sont stockes tels
-// quels : ce sont des references disque, aucune copie des videos n'est faite.
+// Persistance locale des projets (IndexedDB).
+//
+// ATTENTION : un objet File range dans IndexedDB n'est PAS une simple
+// reference. Chrome en recopie le contenu entier dans son profil — verifie :
+// une video de 100 Mo reapparait, octet pour octet, dans le dossier
+// IndexedDB du navigateur, sous un nouveau numero a CHAQUE enregistrement.
+// L'enregistrement automatique (quelques secondes apres chaque modification)
+// reecrivait donc tous les rushes du projet en tache de fond, pendant le
+// montage. Depuis la v4, chaque fichier est range UNE fois dans un magasin a
+// part, et un projet n'en garde que la cle.
 // v2 : les projets sont indexes par identifiant stable (renommer ne cree plus
 // de doublon) et portent une vignette.
 
@@ -7,6 +15,7 @@ const DB = 'cutlocal';
 const STORE = 'projects2';
 const META = 'meta';        // index leger : titre, vignette, dates — SANS les fichiers
 const OLD = 'projects';
+const FICHIERS = 'fichiers';  // cle -> File, partage par tous les projets
 let dbp = null;
 
 function open() {
@@ -20,12 +29,13 @@ function open() {
     }, 6000);
     const done = (fn) => (v) => { clearTimeout(guard); fn(v); };
 
-    const r = indexedDB.open(DB, 3);
+    const r = indexedDB.open(DB, 4);
     r.onblocked = () => console.warn('IndexedDB : migration en attente (un autre onglet est ouvert)');
     r.onupgradeneeded = (ev) => {
       const db = r.result;
       const tx = r.transaction;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(FICHIERS)) db.createObjectStore(FICHIERS);
       // v3 : un index separe. Lister les projets chargeait jusque-la CHAQUE
       // enregistrement en entier — fichiers video compris — juste pour afficher
       // un titre et une vignette. Le menu mettait des secondes a s'ouvrir.
@@ -118,15 +128,92 @@ function resume(rec) {
   };
 }
 
-export async function idbSave(rec) {
-  await tx('readwrite', (s) => s.put(rec));
-  // l'index suit, mais son echec ne doit pas faire perdre le projet
-  try { await tx('readwrite', (s) => s.put(resume(rec)), META); } catch (_) {}
+/** Identite d'un fichier : meme nom, meme taille, meme date = meme contenu. */
+function cleFichier(f) {
+  return [f.name || '', f.size || 0, f.lastModified || 0].join('|');
 }
-export function idbGet(id) { return tx('readonly', (s) => s.get(id)).then((r) => r || null); }
+
+// cles deja rangees pendant cette session : evite de le redemander a la base
+const ranges = new Set();
+
+/** Range les fichiers absents du magasin ; renvoie {mediaId: cle}. */
+async function rangerFichiers(files) {
+  const cles = {};
+  const aRanger = [];
+  for (const [id, f] of Object.entries(files || {})) {
+    if (!f) continue;
+    const k = cleFichier(f);
+    cles[id] = k;
+    if (!ranges.has(k)) aRanger.push([k, f]);
+  }
+  if (!aRanger.length) return cles;
+  const db = await open();
+  await new Promise((resolve, reject) => {
+    const t = db.transaction(FICHIERS, 'readwrite');
+    const s = t.objectStore(FICHIERS);
+    for (const [k, f] of aRanger) {
+      // getKey ne lit pas le contenu : seul un fichier vraiment nouveau est ecrit
+      const q = s.getKey(k);
+      q.onsuccess = () => { if (q.result === undefined) s.put(f, k); };
+    }
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new Error('transaction annulee'));
+  });
+  for (const [k] of aRanger) ranges.add(k);
+  return cles;
+}
+
+export async function idbSave(rec) {
+  const cles = await rangerFichiers(rec.files);
+  const leger = { ...rec, files: {}, fileKeys: cles };
+  await tx('readwrite', (s) => s.put(leger));
+  // l'index suit, mais son echec ne doit pas faire perdre le projet
+  try { await tx('readwrite', (s) => s.put(resume(leger)), META); } catch (_) {}
+}
+
+/** Projet complet, fichiers compris (anciens enregistrements acceptes tels quels). */
+export async function idbGet(id) {
+  const rec = await tx('readonly', (s) => s.get(id));
+  if (!rec) return null;
+  if (rec.fileKeys && Object.keys(rec.fileKeys).length) {
+    const db = await open();
+    const files = { ...(rec.files || {}) };
+    await new Promise((resolve, reject) => {
+      const t = db.transaction(FICHIERS, 'readonly');
+      const s = t.objectStore(FICHIERS);
+      for (const [mid, k] of Object.entries(rec.fileKeys)) {
+        const q = s.get(k);
+        q.onsuccess = () => { if (q.result) { files[mid] = q.result; ranges.add(k); } };
+      }
+      t.oncomplete = resolve;
+      t.onerror = () => reject(t.error);
+    });
+    rec.files = files;
+  }
+  return rec;
+}
+
+/** Efface du magasin les fichiers qu'aucun projet ne reference plus. */
+async function menageFichiers() {
+  const tous = await tx('readonly', (s) => s.getAll()).catch(() => null);
+  if (!Array.isArray(tous)) return;
+  const utiles = new Set();
+  for (const r of tous) for (const k of Object.values(r.fileKeys || {})) utiles.add(k);
+  const cles = await tx('readonly', (s) => s.getAllKeys(), FICHIERS).catch(() => []);
+  // Une cle servie pendant cette session peut appartenir a un projet dont
+  // l'enregistrement est en vol : on ne la touche pas, le menage d'une
+  // prochaine session s'en chargera.
+  const morts = cles.filter((k) => !utiles.has(k) && !ranges.has(k));
+  if (!morts.length) return;
+  await tx('readwrite', (s) => { for (const k of morts) s.delete(k); }, FICHIERS).catch(() => {});
+  for (const k of morts) ranges.delete(k);
+}
+
 export async function idbDelete(id) {
   await tx('readwrite', (s) => s.delete(id));
   try { await tx('readwrite', (s) => s.delete(id), META); } catch (_) {}
+  menageFichiers().catch(() => {});
 }
 
 /**
@@ -144,5 +231,6 @@ export async function idbList() {
     all = (Array.isArray(full) ? full : []).map(resume);
     for (const r of all) { try { await tx('readwrite', (s) => s.put(r), META); } catch (_) {} }
   }
+  menageFichiers().catch(() => {});
   return all.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 }

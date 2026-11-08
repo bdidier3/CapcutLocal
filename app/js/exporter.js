@@ -131,6 +131,29 @@ export async function resolveVideoConfig({ codec, width, height, fps, bitrate, q
             };
           }
         } catch (e) { errors.push(c.codec + ': ' + e.message); }
+        // Chrome refuse l'encodeur materiel des que largeur x hauteur x cadence
+        // depasse ce que le pilote annonce — typiquement la 4K a 60 i/s, alors
+        // que la carte l'encode sans peine (mesure RTX 3060 : 4K 60 en materiel
+        // ~80 i/s par flux, contre ~45 en logiciel). La cadence de la config
+        // n'est qu'une indication pour le controle de debit : en QUALITE
+        // CONSTANTE il n'y en a pas, chaque image recoit le meme quantificateur
+        // quelle que soit la cadence annoncee. On annonce donc une cadence que
+        // le materiel accepte, et on lui donne les images au vrai rythme. Les
+        // horodatages et la duree des images du fichier restent ceux de `fps`.
+        if (mode === 'quantizer' && accel === 'prefer-hardware' && fps > 30) {
+          for (const hint of [30, 25]) {
+            const cfgH = { ...cfg, framerate: hint };
+            try {
+              const r = await VideoEncoder.isConfigSupported(cfgH);
+              if (r.supported) {
+                return {
+                  config: r.config || cfgH, accel, hardware: true,
+                  quantizer: qp, mode, framerateHint: hint,
+                };
+              }
+            } catch (_) { /* palier suivant */ }
+          }
+        }
       }
     }
   }

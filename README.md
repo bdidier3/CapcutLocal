@@ -105,6 +105,40 @@ la même source, sans dérive possible.
 
 ---
 
+### Un aperçu fluide, même en 4K 60
+
+Mesuré sur un rush 4K 60 i/s (RTX 3060), aussitôt après l'avoir glissé dans l'éditeur :
+
+| | Avant | Maintenant |
+|---|---|---|
+| Glisser → clip sur la timeline | ~300 ms | **~25 ms** |
+| Lecture d'un rush 4K 60 H.264 | ~10 images/s, à-coups de 0,7 s | **~178 rendus/s**, aucun à-coup |
+| Montage à coupes de 0,5 s (deux rushes 4K) | 43 rendus/s, à-coups de 0,46 s | **165 rendus/s**, 0,07 s au pire |
+| Montage à coupes de 0,25 s | 21 rendus/s, lecture à 85 % de la vitesse | **138 rendus/s** |
+
+Quatre causes, toutes corrigées :
+
+- **Le son ne décode plus l'image.** L'élément média qui joue le son de l'aperçu
+  décodait aussi la vidéo 4K — même un `<audio>` — et volait le décodeur de l'image.
+  Il lit maintenant un fichier *virtuel* qui ne déclare que la piste son, construit
+  en mémoire autour du fichier d'origine **sans en copier un octet** (`sonseul.js`).
+  Son vérifié identique à l'échantillon près.
+- **Vignettes et pellicule par images clés.** Elles se fabriquaient en plaçant un
+  `<video>` 4K à 24 instants, soit des centaines d'images décodées juste après
+  l'import — pile quand on lance la lecture. Elles décodent maintenant une seule
+  image clé chacune (WebCodecs), et se font discrètes pendant la lecture. La
+  vignette n'est plus attendue pour poser le clip sur la timeline.
+- **La vignette du projet ne déplace plus la tête de lecture.** L'enregistrement
+  automatique la fabriquait en faisant sauter l'aperçu vers le quart du projet puis
+  en revenant : un aller-retour en pleine lecture. Elle est rendue à part.
+- **Le plan suivant est prêt avant la coupe** : son décodeur est ouvert et calé sur
+  son point d'entrée une seconde à l'avance. Et la tête de lecture ne fait plus de
+  bond en avant à chaque coupe en se recalant sur l'horloge du son : elle rattrape
+  en douceur.
+
+Le glisser-déposer de **plusieurs fichiers à la fois** les importe tous (seul le
+premier entrait : les données d'un dépôt expirent dès la première attente).
+
 ## L'interface
 
 Une barre d'icônes à gauche donne accès aux rubriques : **Médias** (vidéos, audio,
@@ -537,6 +571,18 @@ Vérifié par un test « code-barres » en 1080×1920 à 60 i/s où chaque image
 numéro : après ré-encodage complet et relecture, la **dérive en fin de vidéo est de
 0,0 image** (WebCodecs) et **0,3 image** (lecteur), pour un écart maximum d'une image.
 
+### La 4K 60 i/s encodée par la carte graphique
+
+Chrome refuse l'encodeur matériel dès que la définition × la cadence dépasse ce
+qu'annonce le pilote — typiquement la 4K à 60 i/s — alors que la carte l'encode
+sans peine. L'export retombait donc en logiciel. En **qualité constante** (le mode
+par défaut), la cadence déclarée à l'encodeur n'influe sur rien : chaque image reçoit
+le même quantificateur. L'export lui annonce donc 30 i/s et lui donne les images au
+vrai rythme ; le fichier reste en 60 i/s, image par image (vérifié : 1200 images sur
+1200, chacune fidèle à sa source). Mesuré sur une source 4K 60 : **+15 à +21 %**
+en export réparti, **+30 %** en mono-cœur. Au-delà, c'est l'encodeur de la carte
+lui-même qui plafonne (~85 images 4K/s sur une RTX 3060).
+
 ### Le réglage par défaut est le plus rapide que votre carte accélère
 
 Toutes les cartes n'encodent pas tout en matériel. Beaucoup s'arrêtent à la **4K 30 i/s**
@@ -932,9 +978,17 @@ Audio : MP3, WAV, M4A, AAC, FLAC, OGG, OPUS. Images : PNG, JPG, WEBP, BMP, GIF.
 
 ## Projets
 
-Les projets sont enregistrés automatiquement dans le navigateur (IndexedDB), avec
-les **références** vers vos fichiers vidéo — jamais de copie. Le dernier projet est
-rouvert au démarrage. « Ouvrir » liste les projets enregistrés.
+Les projets sont enregistrés automatiquement dans le navigateur (IndexedDB). « Ouvrir »
+liste les projets enregistrés.
+
+Pour pouvoir rouvrir un projet sans réimporter, Chrome garde **une copie** de chaque
+média dans son profil — c'est ainsi qu'IndexedDB conserve un fichier, contrairement
+à ce qu'on pourrait croire. Chaque média n'est copié **qu'une fois**, partagé entre
+les projets qui l'utilisent, et effacé quand plus aucun projet ne s'en sert.
+Auparavant, l'enregistrement automatique — quelques secondes après chaque
+modification — recopiait tous les rushes du projet à chaque fois, en tâche de fond
+pendant le montage. Mesuré : 100 Mo réécrits par enregistrement, contre 0 octet
+maintenant (l'enregistrement suivant prend moins d'une milliseconde).
 
 Si vous déplacez ou supprimez un fichier source, le clip apparaît comme introuvable :
 réimportez le fichier au même nom.

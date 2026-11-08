@@ -2,6 +2,7 @@
 import { buildFrame, audioStateAt } from './compose.js';
 import { sourceTime, mediaOf, projectDuration, activeAt } from './state.js';
 import { ClipDecoder } from './decode.js';
+import { Renderer } from './renderer.js';
 import { clamp, Emitter } from './util.js';
 
 const DRIFT_PLAY = 0.22;   // tolerance de derive en lecture (s)
@@ -122,19 +123,25 @@ export class Player extends Emitter {
   _elFor(clip, media) {
     let e = this.els.get(clip.id);
     if (e && e.mediaId !== media.id) { this._dispose(clip.id); e = null; }
-    // La copie allegee peut arriver alors que l'element tourne deja sur
-    // l'original : on le remplace pour que l'apercu en profite tout de suite.
-    // On compare l'ETAT (copie ou original), pas l'adresse : une adresse peut
-    // changer sans que la source change, et recreer l'element pour rien le
-    // remettrait sans cesse a zero.
-    const surCopie = !!(this.lib.apercus && this.lib.apercus.has(media.id));
-    if (e && e.surCopie !== undefined && e.surCopie !== surCopie) { this._dispose(clip.id); e = null; }
+    // L'element ne sert qu'au SON (l'image vient du decodeur exact) : une
+    // source muette n'en a pas besoin, et en creer un ferait decoder sa video
+    // pour rien.
+    if (!media.hasAudio) {
+      if (e) this._dispose(clip.id);
+      return null;
+    }
     if (!e) {
+      // Piste son seule : l'element ne decode alors aucune image. Tant qu'elle
+      // se prepare (quelques ms), on attend plutot que d'ouvrir l'original.
+      const url = this.lib.urlSon ? this.lib.urlSon(media.id) : this.lib.url(media.id);
+      if (!url) { this.dirty = true; return null; }
+      const sonSeul = !!(this.lib.sonSeulPret && this.lib.sonSeulPret(media.id));
       // On libere de la place tant que le budget est depasse — un seul renvoi
       // ne suffit pas quand les sources sont lourdes. On n'evince JAMAIS un
       // element servant a l'image en cours : il serait recree aussitot, et
       // l'apercu clignoterait avec des plans qui n'ont rien a voir.
-      const cout = this._pxDe(media);
+      // Une piste son seule ne coute aucun decodage d'image.
+      const cout = sonSeul ? 0 : this._pxDe(media);
       for (let garde = 0; garde < POOL_MAX; garde++) {
         if (this.els.size < POOL_MAX && this._poidsPool() + cout <= BUDGET_PX) break;
         let oldest = null;
@@ -145,30 +152,23 @@ export class Player extends Emitter {
         if (!oldest) break;
         this._dispose(oldest.clipId);
       }
-      const el = document.createElement('video');
+      // <audio> et non <video> : on n'en veut que le son.
+      const el = document.createElement('audio');
       el.preload = 'auto';
-      el.playsInline = true;
       el.crossOrigin = 'anonymous';
       el.muted = false;
       el.volume = 0;
       el.style.cssText = 'position:absolute;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
-      // On regarde la copie allegee si elle existe — c'est tout l'interet.
-      const url = this.lib.urlApercu ? this.lib.urlApercu(media.id) : this.lib.url(media.id);
-      if (!url) return null;
       el.src = url;
       document.body.append(el);
       e = { el, clipId: clip.id, mediaId: media.id, lastUse: performance.now(), ready: false, pendingSeek: -1,
-        px: this._pxDe(media), src: url, surCopie };
+        px: cout, src: url, sonSeul };
       el.addEventListener('loadeddata', () => { e.ready = true; this.dirty = true; });
-      // Une copie d'apercu illisible ne doit jamais laisser l'image figee : on
+      // Piste son seule illisible (structure de fichier inattendue) : on
       // revient au fichier d'origine, l'element sera recree au tour suivant.
       el.addEventListener('error', () => {
-        if (e.src && e.src.includes('/api/proxy/file') && this.lib.oublierApercu) {
-          this.lib.oublierApercu(media.id);
-          if (this._libsExactes) this._libsExactes.delete(media.id);
-          for (const [id, d] of this.decs) {
-            if (d.mediaId === media.id) { try { d.dec.close(); } catch (_) {} this.decs.delete(id); }
-          }
+        if (e.sonSeul && this.lib.oublierSon && this.lib.oublierSon(media.id)) {
+          this._dispose(clip.id);
           this.dirty = true;
         }
       });
@@ -306,6 +306,7 @@ export class Player extends Emitter {
     // premiere image, et l'apercu ressemblait a un diaporama. Le decodeur, lui,
     // rend l'image que la timeline demande, quelle que soit la duree du plan.
     this.renderExact().catch(() => this.render());
+    if (this.playing) this._preparerSuivants();
 
     // compteur d'images
     const m = this.fpsMeter;
@@ -359,6 +360,9 @@ export class Player extends Emitter {
         only = clip;
       }
     }
+    // temps mural ecoule depuis le tour precedent, quel que soit le chemin
+    const dtMur = Math.min(0.25, (now - (this._wallLast || now)) / 1000);
+    this._wallLast = now;
     const e = count === 1 && only ? this.els.get(only.id) : null;
     const usable = e && e.el.readyState >= 2 && !e.el.paused && !e.el.seeking
       && Math.abs((only.speed || 1) - 1) < 1e-6;
@@ -389,17 +393,22 @@ export class Player extends Emitter {
         // plus fiable : on repasse a l'horloge murale plutot que d'inventer.
         if (depuis <= 2 / 30) {
           const tl = only.t0 + (this._clockRef.ct - only.in) + depuis * rate;
-          // jamais en arriere : un retour de quelques images se voit a l'ecran
-          if (Math.abs(tl - t) < 0.5 && tl >= t - 1e-4) return tl;
+          // jamais en arriere : un retour de quelques images se voit a l'ecran.
+          // Jamais de bond en avant non plus : juste apres une coupe, l'element
+          // lance en avance peut deja etre un peu au-dela de son point
+          // d'entree. S'y caler d'un coup sautait des images a CHAQUE coupe —
+          // la lecture d'un montage a coupes rapides filait 4 a 8 % trop vite.
+          // On rattrape donc en douceur (au plus 25 % plus vite que le temps).
+          if (Math.abs(tl - t) < 0.5 && tl >= t - 1e-4) {
+            return Math.min(tl, t + dtMur * 1.25 * rate + 0.001);
+          }
         }
       }
     } else {
       this._clockEl = null;
       this._clockRef = null;
     }
-    const dt = Math.min(0.25, (now - (this._wallLast || now)) / 1000);
-    this._wallLast = now;
-    return t + dt;
+    return t + dtMur;
   }
 
   /** Aligne les elements video et les volumes sur la tete de lecture. */
@@ -458,7 +467,7 @@ export class Player extends Emitter {
         // sur la matiere qui precede son point d'entree, muet. Quand la coupe
         // arrive, son decodeur est deja lance et l'image tombe au bon moment.
         const avance = clip.t0 - t;
-        const lourd = this._pxDe(media) > ELAN_PX_MAX;
+        const lourd = !e.sonSeul && this._pxDe(media) > ELAN_PX_MAX;
         const elan = !visible && this.playing && !this._priming && avance > 0
           && !lourd && clip.in >= avance * rate + 0.05;
         // pre-chargement : on ne demande jamais un temps AVANT le point d'entree
@@ -582,27 +591,68 @@ export class Player extends Emitter {
   }
 
   /** Vignette du projet (data URL JPEG) prise a un moment representatif. */
+  /**
+   * Vignette du projet, rendue A COTE de l'apercu.
+   *
+   * L'ancienne version deplacait la tete de lecture vers l'image voulue, puis
+   * la remettait en place. Appelee par l'enregistrement automatique — quelques
+   * secondes apres chaque modification, y compris apres un import — elle
+   * faisait sauter l'apercu en pleine lecture : un aller-retour d'une seconde,
+   * avec re-decodage d'une GOP au retour. On la fabrique desormais sur un
+   * canvas a part, avec ses propres decodeurs, sans toucher a la tete.
+   */
   async thumbnail(maxW = 320) {
-    const dur = projectDuration(this.store.project);
+    const p = this.store.project;
+    const dur = projectDuration(p);
     if (!dur) return null;
-    const keep = this.store.playhead;
+    // en lecture, on ne vole pas le decodeur : l'appelant garde l'ancienne
+    if (this.playing) return null;
     const t = Math.min(dur * 0.25, Math.max(0.1, dur - 0.05));
-    this.store.seek(t, false);
-    this._syncMedia();
-    await new Promise((r) => setTimeout(r, 260));
-    this._syncMedia();
-    await new Promise((r) => setTimeout(r, 140));
-    this.render();
-    const cv = this._readToCanvas(maxW);
-    this.store.seek(keep, false);
-    this.dirty = true;
-    if (!cv) return null;
-    return cv.toDataURL('image/jpeg', 0.72);
+    const w = Math.max(2, Math.round(maxW / 2) * 2);
+    const h = Math.max(2, Math.round((maxW * (p.height || 1080)) / (p.width || 1920) / 2) * 2);
+    if (!this._vignette) this._vignette = new Renderer(new OffscreenCanvas(w, h), { preserve: true });
+    const r = this._vignette;
+    r.setSize(w, h);
+    const decs = [];
+    const sources = new Map();
+    try {
+      for (const a of activeAt(p, t)) {
+        if (a.track.kind === 'audio' || a.clip.kind === 'audio' || a.clip.kind === 'text') continue;
+        const media = mediaOf(p, a.clip);
+        if (!media || !media.hasVideo) continue;
+        try {
+          const dec = new ClipDecoder(await this._libExacte(media), media, a.clip,
+            { wantFps: p.fps, exact: true });
+          decs.push(dec);
+          await dec.init();
+          const got = await dec.frameAt(sourceTime(a.clip, a.tLocal));
+          if (got) sources.set(a.clip.id, got);
+        } catch (_) { /* couche absente de la vignette, rien de grave */ }
+      }
+      const frame = buildFrame(p, t, (clip) => sources.get(clip.id) || null, w, h);
+      for (const L of frame.layers) {
+        const e = r.upload(L.texId, L.source, L.srcW, L.srcH);
+        L.tex = e ? e.tex : null;
+      }
+      r.render(frame, true);
+      const blob = await r.canvas.convertToBlob({ type: 'image/jpeg', quality: 0.72 });
+      return await new Promise((ok) => {
+        const fr = new FileReader();
+        fr.onload = () => ok(fr.result);
+        fr.onerror = () => ok(null);
+        fr.readAsDataURL(blob);
+      });
+    } finally {
+      for (const g of sources.values()) if (g && g.owned && g.src) { try { g.src.close(); } catch (_) {} }
+      for (const d of decs) { try { d.close(); } catch (_) {} }
+    }
   }
 
   /** Capture PNG de l'image courante, a la taille demandee (image figee). */
   async snapshotBlob(w, h) {
-    this.render();
+    // L'image vient du decodeur exact (les elements media ne portent que le son).
+    for (let i = 0; i < 400 && this._exactEnCours; i++) await new Promise((r) => setTimeout(r, 5));
+    await this.renderExact();
     const cv = this._readToCanvas(0);
     if (!cv) return null;
     let src = cv;
@@ -653,7 +703,7 @@ export class Player extends Emitter {
           try {
             const d = await this._entreeDe(a.clip, media);
             if (!d) { attente = true; continue; }
-            const got = await d.dec.frameAt(sourceTime(a.clip, a.tLocal));
+            const got = await this._frameDe(d, sourceTime(a.clip, a.tLocal));
             // On ne garde AUCUNE image en reserve ici : chaque image retenue
             // occupe un tampon de decodage, et le decodeur materiel s'arrete
             // net quand ils manquent. Si l'image n'est pas prete, on l'attend.
@@ -721,6 +771,63 @@ export class Player extends Emitter {
     return vue;
   }
 
+  /**
+   * Une image du decodeur exact, une demande a la fois.
+   *
+   * Un decodeur n'est pas reentrant : deux demandes simultanees se
+   * marcheraient dessus (sauts croises, images fermees sous les pieds). Or la
+   * preparation du plan suivant et le rendu peuvent viser le meme decodeur :
+   * on les met donc en file.
+   */
+  _frameDe(d, t) {
+    const p = (d.file || Promise.resolve()).then(() => d.dec.frameAt(t));
+    d.file = p.then(() => {}, () => {});
+    return p;
+  }
+
+  /**
+   * Prepare les plans qui arrivent : decodeur ouvert, cale sur son point
+   * d'entree, AVANT la coupe.
+   *
+   * Sans ca, chaque coupe paie au moment ou elle s'affiche l'ouverture d'un
+   * decodeur et le decodage de toute la GOP qui precede le point d'entree :
+   * jusqu'a un quart de seconde d'image figee sur un rush 4K (mesure sur un
+   * montage a coupes d'une demi-seconde). Le decodeur a largement de quoi
+   * faire les deux : un flux 4K 60 n'occupe qu'une fraction de son debit.
+   */
+  _preparerSuivants() {
+    const p = this.store.project;
+    const t = this.store.playhead;
+    const LEAD = 1.2;
+    if (!this._prepares) this._prepares = new Map();     // clipId -> point d'entree prepare
+    let n = 0;
+    const aVenir = [];
+    for (const track of p.tracks) {
+      if (track.kind === 'audio' || track.hidden) continue;
+      for (const clip of track.clips) {
+        if (clip.kind === 'text' || clip.kind === 'audio') continue;
+        const avance = clip.t0 - t;
+        if (avance > 0 && avance <= LEAD) aVenir.push(clip);
+      }
+    }
+    aVenir.sort((a, b) => a.t0 - b.t0);
+    for (const clip of aVenir) {
+      if (n >= 2) break;                       // le plan suivant, et celui d'apres
+      const media = mediaOf(p, clip);
+      if (!media || !media.hasVideo || media.kind === 'image') continue;
+      n++;
+      const cle = clip.in + '|' + (clip.speed || 1) + '|' + media.id;
+      if (this._prepares.get(clip.id) === cle) continue;
+      this._prepares.set(clip.id, cle);
+      (async () => {
+        const d = await this._entreeDe(clip, media);
+        if (!d) return;
+        const got = await this._frameDe(d, sourceTime(clip, 0));
+        if (got && got.owned && got.src) { try { got.src.close(); } catch (_) {} }
+      })().catch(() => { this._prepares.delete(clip.id); });
+    }
+  }
+
   /** Decodeur exact d'un clip, cree a la demande et garde en reserve. */
   async _entreeDe(clip, media) {
     let d = this.decs.get(clip.id);
@@ -739,14 +846,26 @@ export class Player extends Emitter {
           this.decs.delete(vieux[0]);
         }
       }
-      // « exact » : l'apercu doit rendre l'image demandee, meme en reculant.
-      const source = await this._libExacte(media);
-      const dec = new ClipDecoder(source, media, clip,
-        { wantFps: this.store.project.fps, exact: true });
-      d = { dec, mediaId: media.id, clipIn: clip.in, speed: clip.speed || 1, vu: 0 };
+      // L'entree est inscrite AVANT toute attente : la preparation du plan
+      // suivant et le rendu peuvent demander le meme clip au meme moment, et
+      // chacun creerait sinon son propre decodeur.
+      d = { dec: null, mediaId: media.id, clipIn: clip.in, speed: clip.speed || 1, vu: 0 };
       this.decs.set(clip.id, d);
-      await dec.init();
+      const entree = d;
+      d.pret = (async () => {
+        // « exact » : l'apercu doit rendre l'image demandee, meme en reculant.
+        const source = await this._libExacte(media);
+        const dec = new ClipDecoder(source, media, clip,
+          { wantFps: this.store.project.fps, exact: true });
+        entree.dec = dec;
+        await dec.init();
+        // evince pendant sa preparation : personne ne le fermera, on le fait
+        if (this.decs.get(clip.id) !== entree) { try { dec.close(); } catch (_) {} entree.dec = null; }
+      })();
+      d.pret.catch(() => { if (this.decs.get(clip.id) === entree) this.decs.delete(clip.id); });
     }
+    await d.pret;
+    if (!d.dec) return null;
     d.vu = performance.now();
     return d;
   }

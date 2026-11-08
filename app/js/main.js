@@ -47,6 +47,8 @@ try {
   throw e;
 }
 player = new Player(store, lib, renderer);
+// les vignettes se font discretes pendant la lecture
+lib.occupe = () => player.playing;
 overlay = new MaskOverlay($('#overlay'), store, player);
 timeline = new Timeline($('#timeline'), store, lib, player);
 timeline.canvas.addEventListener('pointerdown', () => activateZone('timeline'));
@@ -1775,15 +1777,20 @@ window.addEventListener('drop', async (e) => {
   e.preventDefault();
   const dz = $('#dropzone');
   if (dz) dz.classList.remove('hot');
-  const items = [...(e.dataTransfer.items || [])];
-  const handles = [];
-  if (items.length && items[0].getAsFileSystemHandle) {
-    for (const it of items) {
-      if (it.kind !== 'file') continue;
-      try { const h = await it.getAsFileSystemHandle(); if (h && h.kind === 'file') handles.push(h); } catch (_) {}
-    }
-  }
-  importFiles(handles.length ? handles : e.dataTransfer.files);
+  // TOUT est lu tout de suite, avant la moindre attente : les donnees d'un
+  // depot ne vivent que le temps de l'evenement. L'ancienne boucle attendait
+  // chaque poignee l'une apres l'autre ; des la premiere attente la liste etait
+  // videe, et sur plusieurs fichiers deposes d'un coup seul le premier entrait.
+  const items = [...(e.dataTransfer.items || [])].filter((it) => it.kind === 'file');
+  const fichiers = items.map((it) => it.getAsFile());
+  const poignees = items.map((it) => (it.getAsFileSystemHandle ? it.getAsFileSystemHandle().catch(() => null) : null));
+  const secours = [...(e.dataTransfer.files || [])];
+  if (!items.length) { importFiles(secours); return; }
+  // La poignee permet de rouvrir le projet plus tard ; si elle manque, le
+  // fichier lui-meme suffit pour monter tout de suite.
+  const hs = await Promise.all(poignees.map((p) => p || Promise.resolve(null)));
+  const liste = items.map((_, i) => (hs[i] && hs[i].kind === 'file' ? hs[i] : fichiers[i])).filter(Boolean);
+  importFiles(liste.length ? liste : secours);
 });
 
 // ------------------------------------------------------------ reglages projet
@@ -2304,6 +2311,7 @@ async function loadProject(id) {
   player.pause();
   player.disposeAll();
   lib.files.clear(); lib.urls.clear(); lib.mp4.clear(); lib.strips.clear(); lib.waves.clear();
+  if (lib._sons) lib._sons.clear();
   lib.apercus.clear();
   projectId = rec.id;
   store.project = migrateProject(rec.project);
@@ -2326,6 +2334,7 @@ async function loadProject(id) {
 function newBlankProject(name) {
   player.pause(); player.disposeAll();
   lib.files.clear(); lib.urls.clear(); lib.mp4.clear(); lib.strips.clear(); lib.waves.clear();
+  if (lib._sons) lib._sons.clear();
   lib.apercus.clear();
   binSel.clear();
   projectId = 'p' + Math.random().toString(36).slice(2, 10);

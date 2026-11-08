@@ -1,6 +1,7 @@
 // Bibliotheque de medias : import instantane (aucune copie), sondage, vignettes.
 import { uid, once, toast } from './util.js';
 import { Mp4File, blobReader, isIsoBmff } from './mp4demux.js';
+import { sonSeul } from './sonseul.js';
 
 const VIDEO_EXT = ['mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi', 'wmv', 'mts', 'm2ts', 'ts', 'mpg', 'mpeg', '3gp', 'flv', 'ogv'];
 const AUDIO_EXT = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma'];
@@ -69,6 +70,53 @@ export class Library {
    */
   urlApercu(mediaId) {
     return this.apercus.get(mediaId) || this.url(mediaId);
+  }
+
+  /**
+   * Adresse a utiliser pour ECOUTER ce media dans l'apercu.
+   *
+   * L'image de l'apercu vient de WebCodecs ; l'element media ne sert qu'au son.
+   * Pointe sur la video, il en decoderait aussi l'image, pour rien — et en 4K
+   * cela vole le decodeur de l'apercu. On lui donne donc la piste son seule
+   * (voir sonseul.js), sans copie du fichier.
+   *
+   * Renvoie null tant que cette piste se prepare (quelques millisecondes) :
+   * l'appelant reessaie au tour suivant. Si le fichier ne s'y prete pas, on
+   * retombe sur l'original, comme avant.
+   */
+  urlSon(mediaId) {
+    const deja = this._sons && this._sons.get(mediaId);
+    if (deja) return deja.url;
+    if (deja === null) return null;                 // en preparation
+    const f = this.files.get(mediaId);
+    if (!f) return null;
+    const media = this.store.project.media.find((m) => m.id === mediaId);
+    if (!media || !media.hasVideo || media.kind !== 'video' || !/\.(mp4|mov|m4v|3gp)$/i.test(f.name)) {
+      return this.url(mediaId);
+    }
+    if (!this._sons) this._sons = new Map();
+    this._sons.set(mediaId, null);
+    sonSeul(f).then((blob) => {
+      this._sons.set(mediaId, blob ? { url: URL.createObjectURL(blob), seul: true } : { url: this.url(mediaId), seul: false });
+    }, () => {
+      this._sons.set(mediaId, { url: this.url(mediaId), seul: false });
+    });
+    return null;
+  }
+
+  /** La piste son seule est-elle en service pour ce media ? */
+  sonSeulPret(mediaId) {
+    const s = this._sons && this._sons.get(mediaId);
+    return !!(s && s.seul);
+  }
+
+  /** La piste son seule s'est averee illisible : retour a l'original. */
+  oublierSon(mediaId) {
+    const s = this._sons && this._sons.get(mediaId);
+    if (!s || !s.seul) return false;
+    try { URL.revokeObjectURL(s.url); } catch (_) {}
+    this._sons.set(mediaId, { url: this.url(mediaId), seul: false });
+    return true;
   }
 
   /**
@@ -310,10 +358,17 @@ export class Library {
     if (media.kind === 'audio') { media.hasVideo = false; media.hasAudio = true; }
     if (!media.duration) media.duration = 5;
 
-    // 3) vignette
+    // 3) vignette — EN TACHE DE FOND : le clip doit arriver sur la timeline
+    // des que sa duree et sa definition sont connues, sans attendre son image
+    // de couverture.
     if (media.hasVideo && !media.thumb) {
-      try { media.thumb = await this.grabThumb(media); } catch (_) {}
+      this.grabThumb(media).then((th) => {
+        if (th) { media.thumb = th; this.store.changed('media'); }
+      }).catch(() => {});
     }
+    // la piste son de l'apercu se prepare tout de suite, pour etre la au
+    // premier appui sur Lecture
+    if (media.hasVideo && media.hasAudio && this.urlSon) this.urlSon(media.id);
     if (media.kind === 'audio') {
       this.waveform(media.id).catch(() => {});
     }
@@ -331,7 +386,87 @@ export class Library {
     return this._probeVideo;
   }
 
+  /**
+   * Vignettes par IMAGES CLES, via WebCodecs.
+   *
+   * Placer un <video> a 24 instants revient a decoder 24 GOP entieres : sur un
+   * rush 4K 60 c'est plusieurs centaines d'images 4K, juste apres l'import —
+   * c'est-a-dire pile quand on lance la lecture. Le decodeur de l'apercu en
+   * perdait les deux tiers de son debit (mesure : 40 i/s au lieu de 130).
+   * Une image cle, elle, se decode seule : 24 images au lieu de centaines, et
+   * pour une pellicule de timeline la precision a l'image pres n'apporte rien.
+   *
+   * @returns {Promise<Array<HTMLCanvasElement>|null>} null si le fichier n'est
+   *   pas lisible ainsi (l'appelant retombe sur l'element video)
+   */
+  async _vignettesCles(media, times, W, H) {
+    if (typeof VideoDecoder === 'undefined') return null;
+    const mp4 = await this.mp4Of(media.id);
+    const track = mp4 && mp4.videoTrack;
+    if (!track || !track.codec || !track.samples.length) return null;
+    const config = {
+      codec: track.codec, description: track.description || undefined,
+      codedWidth: track.width, codedHeight: track.height,
+    };
+    try { if (!(await VideoDecoder.isConfigSupported(config)).supported) return null; } catch (_) { return null; }
+    let attente = null, erreur = null;
+    const dec = new VideoDecoder({
+      output: (f) => { if (attente) { const a = attente; attente = null; a(f); } else f.close(); },
+      error: (e) => { erreur = e; if (attente) { const a = attente; attente = null; a(null); } },
+    });
+    dec.configure(config);
+    const rot = track.rotation || 0;
+    const parCle = new Map();
+    const out = [];
+    try {
+      for (const t of times) {
+        if (erreur) return null;
+        const idx = mp4.indexAt(track, Math.max(0, t - (track.tOffset || 0)));
+        const key = mp4.keyBefore(track, idx);
+        let cv = parCle.get(key);
+        if (!cv) {
+          // ne pas disputer le decodeur a l'apercu pendant la lecture
+          if (this.occupe && this.occupe()) await new Promise((r) => setTimeout(r, 120));
+          const [c] = await mp4.readSamples(track, key, key);
+          if (!c) return null;
+          const recu = new Promise((r) => { attente = r; });
+          dec.decode(new EncodedVideoChunk({
+            type: 'key', timestamp: Math.round((c.sample.cts / track.timescale) * 1e6), data: c.data,
+          }));
+          await dec.flush().catch(() => {});
+          const f = await Promise.race([recu, new Promise((r) => setTimeout(() => r(null), 3000))]);
+          attente = null;
+          if (!f) return null;
+          cv = document.createElement('canvas');
+          cv.width = W; cv.height = H;
+          const ctx = cv.getContext('2d');
+          // images brutes du decodeur : la rotation du conteneur est a appliquer
+          ctx.translate(W / 2, H / 2);
+          ctx.rotate((rot * Math.PI) / 180);
+          const couche = rot === 90 || rot === 270;
+          const dw = couche ? H : W, dh = couche ? W : H;
+          ctx.drawImage(f, -dw / 2, -dh / 2, dw, dh);
+          f.close();
+          parCle.set(key, cv);
+        }
+        out.push(cv);
+      }
+      return out;
+    } catch (_) {
+      return null;
+    } finally {
+      try { dec.close(); } catch (_) {}
+    }
+  }
+
   async grabThumb(media, at) {
+    {
+      const t = at ?? Math.min(Math.max(0.1, media.duration * 0.1), Math.max(0, media.duration - 0.05));
+      const W = 192;
+      const H = Math.max(1, Math.round(W * (media.height || 9) / (media.width || 16)));
+      const r = await this._vignettesCles(media, [t], W, H).catch(() => null);
+      if (r && r[0]) return r[0].toDataURL('image/jpeg', 0.72);
+    }
     const file = this.files.get(media.id);
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.playsInline = true;
@@ -384,6 +519,24 @@ export class Library {
     const media = this.store.project.media.find((m) => m.id === mediaId);
     const file = this.files.get(mediaId);
     if (!media || !file || !media.hasVideo) return;
+    {
+      const H = 44;
+      const W = Math.max(2, Math.round(H * (media.width || 16) / (media.height || 9)));
+      const times = [];
+      for (let i = 0; i < count; i++) {
+        times.push(Math.min((media.duration * (i + 0.5)) / count, Math.max(0, media.duration - 0.03)));
+      }
+      const cles = await this._vignettesCles(media, times, W, H).catch(() => null);
+      if (cles) {
+        const bitmaps = await Promise.all(cles.map((cv) => createImageBitmap(cv)));
+        const old = this.strips.get(mediaId);
+        const entry = { count: bitmaps.length, bitmaps, pending: false, requested: Math.max(count, (old && old.requested) || 0) };
+        if (old && old.bitmaps) for (const b of old.bitmaps) b.close && b.close();
+        this.strips.set(mediaId, entry);
+        onReady && onReady(entry);
+        return;
+      }
+    }
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.playsInline = true;
     const url = URL.createObjectURL(file);
@@ -450,6 +603,9 @@ export class Library {
     this.files.delete(mediaId);
     this.handles.delete(mediaId);
     this.mp4.delete(mediaId);
+    const son = this._sons && this._sons.get(mediaId);
+    if (son && son.seul) { try { URL.revokeObjectURL(son.url); } catch (_) {} }
+    if (this._sons) this._sons.delete(mediaId);
     const s = this.strips.get(mediaId);
     if (s && s.bitmaps) for (const b of s.bitmaps) b.close && b.close();
     this.strips.delete(mediaId);
