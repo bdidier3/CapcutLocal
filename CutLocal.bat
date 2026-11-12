@@ -84,9 +84,14 @@ if ($env:CUTLOCAL_SOURCE) {
     $derniere = 'local:' + (Get-Item $env:CUTLOCAL_SOURCE).LastWriteTimeUtc.Ticks
 } else {
     try {
-        $derniere = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 `
+        $rep = Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 `
             -Uri "https://api.github.com/repos/$Depot/commits/$Branche" `
-            -Headers @{ 'Accept' = 'application/vnd.github.sha'; 'User-Agent' = 'CutLocal-lanceur' }).Content.Trim()
+            -Headers @{ 'Accept' = 'application/vnd.github.sha'; 'User-Agent' = 'CutLocal-lanceur' }
+        # Windows PowerShell 5.1 rend ce type de reponse en OCTETS, pas en texte
+        $c = $rep.Content
+        if ($c -is [byte[]]) { $c = [Text.Encoding]::ASCII.GetString($c) }
+        $derniere = "$c".Trim()
+        if ($derniere -notmatch '^[0-9a-f]{40}$') { throw "reponse inattendue de GitHub" }
     } catch {
         if (-not $installee) {
             Fin ("Impossible de joindre GitHub ($Depot). Verifiez la connexion Internet" +
