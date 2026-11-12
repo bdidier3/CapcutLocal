@@ -276,11 +276,7 @@ export class Library {
         // Media deja connu mais introuvable (ou servi par une copie du
         // navigateur) : ce nouvel import le REBRANCHE sur le vrai fichier.
         if (!this.files.has(dup.id) || this.depuisCopie.has(dup.id) || (handle && !this.handles.has(dup.id))) {
-          this.files.set(dup.id, file);
-          if (handle) this.handles.set(dup.id, handle);
-          this.depuisCopie.delete(dup.id);
-          this.urls.delete(dup.id); this.mp4.delete(dup.id);
-          if (this._sons) this._sons.delete(dup.id);
+          this.relier(dup.id, file, handle);
           dup.relie = true;
         }
         added.push(dup);
@@ -451,9 +447,12 @@ export class Library {
         const key = mp4.keyBefore(track, idx);
         let cv = parCle.get(key);
         if (!cv) {
-          // ne pas disputer le decodeur a l'apercu pendant la lecture
-          if (this.occupe && this.occupe()) await new Promise((r) => setTimeout(r, 120));
-          const [c] = await mp4.readSamples(track, key, key);
+          // Ne pas disputer le disque ni le decodeur a l'apercu pendant la
+          // lecture : chaque vignette est une lecture a un endroit different
+          // du fichier, et sur un disque dur (USB surtout) ces allers-retours
+          // ralentissent toutes les autres lectures. On attend la pause.
+          for (let i = 0; i < 600 && this.occupe && this.occupe(); i++) await new Promise((r) => setTimeout(r, 250));
+          const [c] = await mp4.readSamples(track, key, key, true);   // l'image cle seule
           if (!c) return null;
           const recu = new Promise((r) => { attente = r; });
           dec.decode(new EncodedVideoChunk({
@@ -637,6 +636,17 @@ export class Library {
     if (s && s.bitmaps) for (const b of s.bitmaps) b.close && b.close();
     this.strips.delete(mediaId);
     this.waves.delete(mediaId);
+  }
+
+  /** Rebranche un media sur son vrai fichier (sans rien copier). */
+  relier(mediaId, file, handle) {
+    this.files.set(mediaId, file);
+    if (handle) this.handles.set(mediaId, handle);
+    this.depuisCopie.delete(mediaId);
+    const u = this.urls.get(mediaId);
+    if (u) { try { URL.revokeObjectURL(u); } catch (_) {} }
+    this.urls.delete(mediaId); this.mp4.delete(mediaId);
+    if (this._sons) this._sons.delete(mediaId);
   }
 
   /** Medias du projet dont le fichier n'est pas (re)lie. */

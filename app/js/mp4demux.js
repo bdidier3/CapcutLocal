@@ -11,7 +11,11 @@ const txt = (u8, o, n) => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o 
  * reseau, chaque aller-retour coute bien plus cher que les octets eux-memes : on
  * lit donc par gros blocs et on ressert la suite depuis la memoire.
  */
-const CHUNK = 4 * 1024 * 1024;
+// 8 Mo : sur un disque dur, chaque lecture paie un deplacement de la tete
+// (~10-20 ms, bien plus quand plusieurs fichiers sont lus a la fois) ; deux fois
+// moins de lectures, c'est deux fois moins de deplacements. Un rush iPhone 4K
+// a 50-90 Mb/s en consomme 6 a 11 Mo par seconde de video.
+const CHUNK = 8 * 1024 * 1024;
 
 export function blobReader(blob) {
   let cache = null, cacheStart = 0, cacheEnd = 0;
@@ -19,6 +23,21 @@ export function blobReader(blob) {
   return {
     size: blob.size,
     stats,
+    /**
+     * Lecture EXACTE, sans passer par le bloc en memoire. Pour les petites
+     * lectures isolees (en-tetes, une image cle) : charger 8 Mo pour en garder
+     * quelques octets faisait lire des giga-octets pour rien a l'import et pour
+     * les vignettes — sur un disque dur USB, des dizaines de secondes.
+     */
+    async readDirect(start, end) {
+      const e = Math.min(end, blob.size);
+      if (e <= start) return new Uint8Array(0);
+      if (cache && start >= cacheStart && e <= cacheEnd) return cache.subarray(start - cacheStart, e - cacheStart);
+      const t0 = performance.now();
+      const out = new Uint8Array(await blob.slice(start, e).arrayBuffer());
+      stats.bytes += out.length; stats.ms += performance.now() - t0;
+      return out;
+    },
     async read(start, end) {
       const e = Math.min(end, blob.size);
       if (e <= start) return new Uint8Array(0);
@@ -519,7 +538,7 @@ export class Mp4File {
 
     // Balayage des boites de premier niveau (on ne lit que les en-tetes)
     while (pos + 8 <= size && guard++ < 200000) {
-      const head = await this.reader.read(pos, pos + 16);
+      const head = this.reader.readDirect ? await this.reader.readDirect(pos, pos + 16) : await this.reader.read(pos, pos + 16);
       if (head.length < 8) break;
       const dv = new DataView(head.buffer, head.byteOffset, head.length);
       let bs = dv.getUint32(0);
@@ -529,7 +548,7 @@ export class Mp4File {
       else if (bs === 0) bs = size - pos;
       if (bs < hlen) break;
 
-      if (type === 'moov') moovBuf = await this.reader.read(pos + hlen, pos + bs);
+      if (type === 'moov') moovBuf = this.reader.readDirect ? await this.reader.readDirect(pos + hlen, pos + bs) : await this.reader.read(pos + hlen, pos + bs);
       else if (type === 'moof') moofStarts.push({ start: pos, size: bs, hlen });
       else if (type === 'sidx' || type === 'styp') { /* ignore */ }
 
@@ -649,14 +668,21 @@ export class Mp4File {
   }
 
   /** Lit les octets d'une plage de samples en une seule requete quand c'est contigu. */
-  async readSamples(track, from, to) {
+  /**
+   * @param {boolean} [direct] lecture exacte, sans bloc en memoire (lectures isolees)
+   * @param {object} [lecteur] lecteur propre a l'appelant : chaque decodeur a
+   *   le sien, sinon deux decodeurs de la meme video se volent sans cesse le
+   *   bloc en memoire et relisent le disque a chaque paquet.
+   */
+  async readSamples(track, from, to, direct = false, lecteur = null) {
+    const rd = lecteur || this.reader;
     const s = track.samples;
     to = Math.min(to, s.length - 1);
     if (from > to) return [];
     let start = Infinity, end = 0;
     for (let i = from; i <= to; i++) { start = Math.min(start, s[i].offset); end = Math.max(end, s[i].offset + s[i].size); }
     // securite : si la plage est enorme, on decoupe
-    const buf = await this.reader.read(start, end);
+    const buf = direct && rd.readDirect ? await rd.readDirect(start, end) : await rd.read(start, end);
     const out = [];
     for (let i = from; i <= to; i++) {
       const o = s[i].offset - start;

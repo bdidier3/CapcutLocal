@@ -16,6 +16,7 @@ const STORE = 'projects2';
 const META = 'meta';        // index leger : titre, vignette, dates — SANS les fichiers
 const OLD = 'projects';
 const FICHIERS = 'fichiers';  // cle -> File, partage par tous les projets
+const POIGNEES = 'poignees';  // « nom|taille » -> FileSystemFileHandle, pour tous les projets
 let dbp = null;
 
 function open() {
@@ -29,13 +30,14 @@ function open() {
     }, 6000);
     const done = (fn) => (v) => { clearTimeout(guard); fn(v); };
 
-    const r = indexedDB.open(DB, 4);
+    const r = indexedDB.open(DB, 5);
     r.onblocked = () => console.warn('IndexedDB : migration en attente (un autre onglet est ouvert)');
     r.onupgradeneeded = (ev) => {
       const db = r.result;
       const tx = r.transaction;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(FICHIERS)) db.createObjectStore(FICHIERS);
+      if (!db.objectStoreNames.contains(POIGNEES)) db.createObjectStore(POIGNEES);
       // v3 : un index separe. Lister les projets chargeait jusque-la CHAQUE
       // enregistrement en entier — fichiers video compris — juste pour afficher
       // un titre et une vignette. Le menu mettait des secondes a s'ouvrir.
@@ -164,7 +166,31 @@ async function rangerFichiers(files) {
   return cles;
 }
 
+/** Cle d'un media dans le registre des poignees : meme nom, meme taille. */
+export function clePoignee(nom, taille) { return (nom || '') + '|' + (taille || 0); }
+
+/**
+ * Registre des poignees, commun a tous les projets : une video retrouvee une
+ * fois l'est pour chaque projet qui s'en sert.
+ */
+async function rangerPoignees(rec) {
+  const media = (rec.project && rec.project.media) || [];
+  const paires = [];
+  for (const [mid, h] of Object.entries(rec.handles || {})) {
+    const m = media.find((x) => x.id === mid);
+    if (m && h) paires.push([clePoignee(m.name, m.size), h]);
+  }
+  if (!paires.length) return;
+  await tx('readwrite', (s) => { for (const [k, h] of paires) s.put(h, k); }, POIGNEES);
+}
+
+/** Poignee connue pour ce fichier (nom + taille), ou null. */
+export function idbPoignee(nom, taille) {
+  return tx('readonly', (s) => s.get(clePoignee(nom, taille)), POIGNEES).then((h) => h || null, () => null);
+}
+
 export async function idbSave(rec) {
+  try { await rangerPoignees(rec); } catch (_) { /* le projet passe avant le registre */ }
   const cles = await rangerFichiers(rec.files);
   const leger = { ...rec, files: {}, fileKeys: cles };
   await tx('readwrite', (s) => s.put(leger));

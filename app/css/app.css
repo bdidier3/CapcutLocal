@@ -696,6 +696,7 @@ label.wide input{width:100%}
 .toast.warn{border-left-color:var(--warn)}
 .toast.error{border-left-color:var(--bad)}
 .toast.ok{border-left-color:var(--ok)}
+.toast button{pointer-events:auto;margin-left:10px}
 
 @media (max-width:1100px){
   .projname{width:120px}

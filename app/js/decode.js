@@ -1,6 +1,7 @@
 // Decodage source pour l'export : images exactes via WebCodecs (chemin rapide)
 // avec repli sur l'element <video> pour les conteneurs non geres.
 import { once, clamp } from './util.js';
+import { blobReader } from './mp4demux.js';
 
 const BATCH = 8;
 const MAX_QUEUE = 16;
@@ -110,6 +111,8 @@ export class ClipDecoder {
       if (supported) {
         this.mp4 = mp4;
         this.track = track;
+        // un lecteur a soi (voir readSamples)
+        { const f = this.lib.file && this.lib.file(media.id); this.lecteur = f ? blobReader(f) : null; }
         this.tOffset = track.tOffset || 0;
         this.mode = 'codec';
         this.accel = await pickDecodeAccel(track);
@@ -233,7 +236,18 @@ export class ClipDecoder {
     if (this._feedPromise) { await this._feedPromise.catch(() => {}); this._feedPromise = null; }
     this.seekCount++;
     const idx = this.mp4.indexAt(this.track, Math.max(0, mediaTime));
-    const key = this.mp4.keyBefore(this.track, idx);
+    let key = this.mp4.keyBefore(this.track, idx);
+    // Images « en avance » (HEVC des iPhone, GOP ouverte) : une image cle peut
+    // etre precedee A L'AFFICHAGE d'images qui la suivent au decodage et
+    // dependent de la GOP d'avant. Repartir de cette cle ne les produit jamais :
+    // le decodeur les saute, et l'on attendait en vain l'image demandee jusqu'au
+    // delai de secours — 2,5 s d'image figee a l'apercu, apres un saut ou une
+    // coupe. Si la cle s'affiche apres l'instant voulu, on repart de la
+    // precedente.
+    const t = this.track;
+    const demi = (t.timescale || 1) / Math.max(1, (t.fps || 30) * 2);
+    const voulu = Math.max(0, mediaTime) * (t.timescale || 1);
+    while (key > 0 && t.samples[key].cts > voulu + demi) key = this.mp4.keyBefore(t, key - 1);
     for (const f of this.frames) f.close();
     this.frames.length = 0;
     if (this.cur) { this.cur.close(); this.cur = null; }
@@ -287,7 +301,7 @@ export class ClipDecoder {
     }
     const to = Math.min(this.nextIdx + BATCH - 1, t.samples.length - 1);
     const tRead = performance.now();
-    const chunkList = await this.mp4.readSamples(t, this.nextIdx, to);
+    const chunkList = await this.mp4.readSamples(t, this.nextIdx, to, false, this.lecteur);
     this.readMs += performance.now() - tRead;
     for (const c of chunkList) this.readBytes += c.data.length;
     for (const c of chunkList) {
@@ -381,8 +395,12 @@ export class ClipDecoder {
     // sur certains fichiers le decodeur accepte la configuration puis ne produit
     // jamais rien. Attendre 25 secondes pour s'en apercevoir, c'est 25 secondes
     // perdues avant de basculer sur le chemin qui, lui, fonctionne.
-    const deadline = performance.now() + (this.gotAny ? 25000 : FIRST_FRAME_MS);
-    while (performance.now() < deadline) {
+    // Le delai ne compte pas l'attente du DISQUE : sur un disque dur USB deja
+    // occupe, lire quelques Mo peut prendre plusieurs secondes sans que le
+    // decodeur y soit pour rien. Le declarer bloque faisait perdre l'image.
+    const delai = this.gotAny ? 25000 : FIRST_FRAME_MS;
+    const t0Attente = performance.now(), lu0 = this.readMs;
+    while (performance.now() - t0Attente - (this.readMs - lu0) < delai) {
       if (this.fatal) throw this.fatal;
       this._sortFrames();
       // libere tout ce qui precede l'image candidate
@@ -410,6 +428,16 @@ export class ClipDecoder {
       if (cand && this.cur && cand.timestamp > targetUs + tol) {
         this._prefetch();
         return this._wrap(this.cur, true);
+      }
+      // Filet : juste apres un saut, aucune image anterieure ne viendra plus
+      // (la reserve est pleine, ou le fichier est fini). On sert la plus proche
+      // plutot que d'attendre le delai de secours, image figee.
+      if (cand && !this.cur && cand.timestamp > targetUs + tol
+          && (this.frames.length >= this.ahead || this.inputDone)) {
+        this.cur = this.frames.shift();
+        this.gotAny = true;
+        this._prefetch();
+        return this._wrap(this.cur);
       }
       if (this.eof) {
         if (this.frames.length) {

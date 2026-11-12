@@ -13,9 +13,10 @@ import { Inspector } from './inspector.js';
 import { MaskOverlay } from './maskoverlay.js';
 import { Exporter, RES_PRESETS, FPS_PRESETS, CODECS, suggestBitrate, pickFastDefault } from './exporter.js';
 import { invalidateText } from './compose.js';
-import { idbSave, idbGet, idbList, idbViderCopies } from './idb.js';
+import { idbSave, idbGet, idbList, idbViderCopies, idbPoignee } from './idb.js';
 import { detecterTemps } from './beats.js';
 import { Home } from './home.js';
+import { Prechauffe } from './prechauffe.js';
 import { reverseClip, freezeFrame, trimBefore, trimAfter } from './tools.js';
 import { TEXT_STYLES, applyStyle, fontCss } from './fonts.js';
 
@@ -48,7 +49,19 @@ try {
 }
 player = new Player(store, lib, renderer);
 // les vignettes se font discretes pendant la lecture
-lib.occupe = () => player.playing;
+// (et pendant qu'on coupe ou deplace la tete : l'apercu a besoin du disque)
+lib.occupe = () => player.playing || performance.now() - (player.derniereAction || 0) < 2000;
+
+// Lecture anticipee des passages utiles des rushes (voir prechauffe.js).
+const prechauffe = new Prechauffe(store, lib, player);
+prechauffe.surEtat = ({ fait, total }) => {
+  const e = $('#prechauffe');
+  if (!e) return;
+  // inutile de montrer une preparation de quelques secondes
+  const visible = total > 48 * 1024 * 1024 && fait < total;
+  e.classList.toggle('hidden', !visible);
+  if (visible) e.textContent = `Preparation des videos ${Math.floor((fait / total) * 100)} %`;
+};
 overlay = new MaskOverlay($('#overlay'), store, player);
 timeline = new Timeline($('#timeline'), store, lib, player);
 timeline.canvas.addEventListener('pointerdown', () => activateZone('timeline'));
@@ -159,7 +172,9 @@ function refreshHeader() {
   $('#viewerEmpty').classList.toggle('hidden', p.media.length > 0);
 }
 
-store.on('change', () => { refreshHeader(); renderBin(); scheduleAutosave(); });
+store.on('change', () => { refreshHeader(); renderBin(); scheduleAutosave(); prechauffe.demander(); });
+// tete deplacee a la main : on prechauffe d'abord autour de sa nouvelle position
+store.on('seek', () => { if (!player.playing) prechauffe.demander(); });
 store.on('seek', () => { $('#tcCur').textContent = fmtTime(store.playhead, store.project.fps); });
 store.on('reload', () => { layoutStage(); refreshHeader(); renderBin(); inspector.render(); });
 // L'apercu n'affiche jamais un plan approximatif : quand l'image demandee
@@ -241,9 +256,9 @@ function mediaCard(m) {
     class: 'mcard' + (binSel.has(m.id) ? ' on' : '') + (missing ? ' miss' : ''),
     draggable: !missing,
     'data-mid': m.id,
-    title: m.name + (missing ? '\n(fichier introuvable)' : '')
+    title: m.name + (missing ? '\n(fichier introuvable — double-clic pour le retrouver)' : '')
       + (m.width ? `\n${m.width}×${m.height}` : '') + (m.codec ? '\n' + m.codec : ''),
-    ondblclick: () => addMediaToTimeline(m.id),
+    ondblclick: () => (missing ? retrouverVideos() : addMediaToTimeline(m.id)),
     onpointerdown: () => activateZone('bin'),
     onclick: (e) => {
       if (e.shiftKey) selectBinRange(m.id);
@@ -2365,10 +2380,17 @@ async function saveProject(silent) {
       const f = lib.files.get(m.id);
       if (f && lib.depuisCopie.has(m.id)) files[m.id] = f;
     }
-    // vignette : premiere image utile du projet
-    let thumb = null;
-    try { thumb = await player.thumbnail(320); } catch (_) {}
+    // Vignette du projet : la refaire a CHAQUE enregistrement automatique
+    // (quelques secondes apres chaque coupe) ouvrait un decodeur 4K et relisait
+    // le disque juste pendant le montage. Une par minute suffit largement pour
+    // l'ecran d'accueil ; un enregistrement demande a la main la refait.
     const prev = await idbGet(projectId).catch(() => null);
+    let thumb = null;
+    const ilYa = Date.now() - (saveProject.vignetteA || 0);
+    if (!silent || !(prev && prev.thumb) || ilYa > 60000) {
+      try { thumb = await player.thumbnail(320); } catch (_) {}
+      if (thumb) saveProject.vignetteA = Date.now();
+    }
     await idbSave({
       id: projectId,
       title: store.project.name || 'Projet sans titre',
@@ -2411,7 +2433,7 @@ async function loadProject(id) {
   timeline.fit(); syncZoomSlider();
   const miss = lib.missing();
   if (enAttente.length) demanderAcces(enAttente);
-  else if (miss.length) toast(`${miss.length} fichier(s) introuvable(s) — reimportez-les`, 'warn', 6000);
+  else if (miss.length) signalerManquants();
   // Les copies d'apercu survivent aux sessions : on les rebranche, et on
   // fabrique celles qui manquent.
   preparerApercus(store.project.media);
@@ -2427,7 +2449,15 @@ async function loadProject(id) {
  */
 async function rebrancherFichiers(handles) {
   const enAttente = [];
-  for (const [mid, h] of Object.entries(handles)) {
+  const candidats = { ...handles };
+  // Un media sans poignee dans CE projet a peut-etre ete retrouve dans un autre :
+  // le registre commun le sait (meme nom, meme taille).
+  for (const m of store.project.media) {
+    if (candidats[m.id] || lib.files.has(m.id) || m.chemin) continue;
+    const h = await idbPoignee(m.name, m.size);
+    if (h) candidats[m.id] = h;
+  }
+  for (const [mid, h] of Object.entries(candidats)) {
     if (!h || typeof h.getFile !== 'function') continue;
     lib.handles.set(mid, h);
     try {
@@ -2436,8 +2466,11 @@ async function rebrancherFichiers(handles) {
         try { p = await h.requestPermission({ mode: 'read' }); } catch (_) { p = 'prompt'; }
       }
       if (p === 'granted') {
-        lib.files.set(mid, await h.getFile());
-        lib.depuisCopie.delete(mid);
+        const f = await h.getFile();
+        const m = store.project.media.find((x) => x.id === mid);
+        // le fichier a change depuis (meme nom, autre contenu) : on ne branche pas
+        if (m && m.size && f.size !== m.size) { lib.handles.delete(mid); continue; }
+        lib.relier(mid, f, h);
       } else if (!lib.files.has(mid)) enAttente.push([mid, h]);
     } catch (_) {
       if (!lib.files.has(mid)) enAttente.push([mid, h]);   // fichier deplace ou efface
@@ -2461,16 +2494,78 @@ function demanderAcces(enAttente) {
     for (const [mid, h] of enAttente) {
       try {
         const p = await h.requestPermission({ mode: 'read' });
-        if (p === 'granted') { lib.files.set(mid, await h.getFile()); lib.depuisCopie.delete(mid); ok++; }
+        if (p === 'granted') { lib.relier(mid, await h.getFile(), h); ok++; }
       } catch (_) {}
     }
     t.remove();
     store.changed('media'); player.invalidate(); timeline.draw();
     const miss = lib.missing().length;
-    if (miss) toast(`${miss} fichier(s) introuvable(s) — reimportez-les`, 'warn', 6000);
+    if (miss) signalerManquants();
     else if (ok) toast('Videos du projet retrouvees', 'ok');
   };
   document.addEventListener('pointerdown', reessayer, { once: true, capture: true });
+}
+
+/** Annonce les videos introuvables, avec de quoi les retrouver d'un clic. */
+function signalerManquants() {
+  const n = lib.missing().length;
+  if (!n) return;
+  const t = toast(`${n} video(s) introuvable(s) dans ce projet`, 'warn', 30000);
+  if (window.showDirectoryPicker) {
+    t.append(' ', el('button', {
+      class: 'btn sm', text: 'Retrouver mes videos…',
+      onclick: () => { t.remove(); retrouverVideos(); },
+    }));
+  }
+}
+
+/**
+ * Retrouve les videos manquantes dans un dossier choisi par l'utilisateur.
+ *
+ * Rien n'est copie : on garde une poignee vers chaque fichier d'origine, comme
+ * a l'import. Un fichier correspond s'il porte le meme nom ET la meme taille —
+ * jamais un homonyme. Les sous-dossiers sont parcourus (quatre niveaux).
+ */
+async function retrouverVideos() {
+  const manquants = lib.missing();
+  if (!manquants.length) return toast('Aucune video manquante', 'ok');
+  if (!window.showDirectoryPicker) return toast('Reimportez les fichiers manquants', 'warn');
+  let dir;
+  try { dir = await window.showDirectoryPicker({ mode: 'read', id: 'cutlocal-videos' }); }
+  catch (_) { return; }                                   // fenetre fermee
+  const parNom = new Map();
+  for (const m of manquants) {
+    const k = m.name.toLowerCase();
+    if (!parNom.has(k)) parNom.set(k, []);
+    parNom.get(k).push(m);
+  }
+  const t = toast('Recherche des videos…', 'info', 120000);
+  let trouves = 0, vus = 0;
+  const parcourir = async (d, prof) => {
+    for await (const [nom, h] of d.entries()) {
+      if (++vus > 20000 || trouves === manquants.length) return;
+      if (h.kind === 'directory') { if (prof < 4) await parcourir(h, prof + 1); continue; }
+      const liste = parNom.get(nom.toLowerCase());
+      if (!liste) continue;
+      let f;
+      try { f = await h.getFile(); } catch (_) { continue; }
+      for (const m of liste) {
+        if (lib.files.has(m.id) || (m.size && f.size !== m.size)) continue;
+        lib.relier(m.id, f, h);
+        trouves++;
+      }
+    }
+  };
+  try { await parcourir(dir, 0); } catch (_) {}
+  t.remove();
+  store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
+  const reste = lib.missing().length;
+  if (trouves) {
+    toast(`${trouves} video(s) retrouvee(s)` + (reste ? ` — ${reste} toujours introuvable(s)` : ''), reste ? 'warn' : 'ok', 6000);
+    saveProject(true);                       // les poignees passent dans le registre commun
+  } else {
+    toast('Aucune video correspondante dans ce dossier (meme nom et meme taille)', 'warn', 6000);
+  }
 }
 
 function newBlankProject(name) {
@@ -2545,4 +2640,5 @@ window.CutLocal = {
   stackOnOwnTracks, addOnNewAudioTrack,
   loadProject, newBlankProject, saveProject,
   get projectId() { return projectId; },
+  prechauffe,
 };
