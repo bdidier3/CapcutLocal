@@ -15,6 +15,29 @@ des rushes 4K, fabriquer les vignettes, et rapporter une vidéo depuis un lien.
 
 ---
 
+## Installation en un seul fichier (n'importe quel PC Windows)
+
+Copiez **`CutLocal.bat`** sur le PC (Bureau, clé USB…) et double-cliquez dessus.
+C'est tout : il télécharge, installe, met à jour et lance CutLocal, sans droits
+administrateur et sans rien inscrire dans le système.
+
+| Ce qu'il télécharge | Taille | Quand |
+|---|---|---|
+| le logiciel | ~0,3 Mo (~1 Mo installé) | au premier lancement, puis à chaque nouvelle version |
+| `node.exe` seul (vérifié par empreinte) | ~95 Mo | **seulement** si le PC n'a pas déjà Node.js 20+ |
+| yt-dlp + ffmpeg | ~125 Mo | **seulement** avec `CutLocal.bat complet` (import par lien, WebM/MKV) |
+
+Tout va dans `%LOCALAPPDATA%\CutLocal`. Une mise à jour remplace le logiciel sans
+toucher à vos projets ni à vos vidéos téléchargées ; sans Internet, la version déjà
+installée se lance. `CutLocal.bat desinstaller` retire tout (vos vidéos d'origine
+ne sont jamais touchées).
+
+> Windows peut afficher « Windows a protégé votre ordinateur » pour un fichier
+> venu d'Internet : **Informations complémentaires → Exécuter quand même**.
+>
+> Le lanceur télécharge depuis le dépôt GitHub `bdidier3/CapcutLocal` : il faut que
+> ce dépôt soit **public**.
+
 ## Installer
 
 ### Windows
@@ -135,6 +158,47 @@ Quatre causes, toutes corrigées :
   son point d'entrée une seconde à l'avance. Et la tête de lecture ne fait plus de
   bond en avant à chaque coupe en se recalant sur l'horloge du son : elle rattrape
   en douceur.
+
+### Superpositions, coupes et disque externe
+
+Mesuré sur un vrai montage : rushes iPhone 4K 60 HEVC (50 à 90 Mb/s, tournés),
+trois pistes de plans courts superposés, rushes sur un disque dur USB.
+
+| | Avant | Maintenant |
+|---|---|---|
+| Couper à l'arrêt | 20 ms à **8 s** (blocage) | **20–35 ms**, toujours |
+| Relire après une série de coupes | gels de 2,7 s | **~130 rendus/s**, 0,25 s au pire |
+| Import de 12 rushes (disque froid) | 3 à 13 s | **~1 s** |
+| 1re lecture à froid, après 30 s de montage | ~10–20 rendus/s, gels de 5 s | **~125 rendus/s** |
+
+- **Un décodeur par vidéo, pas par clip.** La réserve était rangée par clip et
+  bornée à six : avec trois couches et des plans courts, l'aperçu fermait et
+  rouvrait des décodeurs 4K en permanence, et chaque coupe créait un clip, donc un
+  décodeur neuf. Un clip prend maintenant le décodeur de sa vidéo déjà le plus près
+  de l'instant voulu : la suite d'une coupe reprend là où la partie gauche s'arrête.
+  Les couches superposées se décodent **en même temps**, plus l'une après l'autre.
+- **Images « en avance » des iPhone.** En HEVC à GOP ouverte, certaines images
+  s'affichent avant l'image clé dont elles dépendent au décodage. Repartir de cette
+  clé ne les produit jamais : le décodeur attendait 2,5 s avant d'abandonner, image
+  figée — à l'aperçu comme à l'export. On repart désormais de la clé précédente.
+- **Le disque n'est lu que pour ce qui sert.** Lire l'en-tête d'un fichier ou une
+  image clé chargeait un bloc de 8 Mo : des giga-octets lus pour rien à l'import et
+  pour la pellicule. Chaque décodeur a aussi son propre bloc en mémoire, au lieu
+  d'en partager un avec les autres décodeurs de la même vidéo et de se le voler.
+  La pellicule attend que l'on arrête de lire ou de couper.
+- **Préchauffage.** À l'arrêt, l'éditeur lit d'avance les passages des rushes
+  utilisés par la timeline, en partant de la tête de lecture ; Windows les garde en
+  mémoire vive, et la lecture suivante ne touche plus le disque. Rien n'est copié.
+  Tout s'interrompt dès qu'on lance la lecture ou qu'on agit. L'avancement
+  s'affiche en haut (« Préparation des vidéos … % ») quand il y en a pour un moment.
+- Un clip muet (volume à zéro, piste coupée) n'ouvre plus de lecteur de son.
+
+> **Disque externe lent.** Le disque de test, branché en USB, ne lisait qu'environ
+> **10 Mo/s**, alors qu'un seul rush iPhone 4K 60 en demande 6 à 11. Trois couches
+> superposées ne peuvent pas être lues en temps réel la première fois, quoi que
+> fasse le logiciel : le préchauffage contourne le problème en lisant pendant que
+> vous montez. Un port **USB 3** (souvent bleu) et le câble d'origine rendent ce type
+> de disque cinq à dix fois plus rapide.
 
 Le glisser-déposer de **plusieurs fichiers à la fois** les importe tous (seul le
 premier entrait : les données d'un dépôt expirent dès la première attente).
@@ -991,8 +1055,13 @@ importée dans le profil du navigateur, sur le disque C, invisible depuis l'expl
 — mesuré sur une machine de test : plus de 20 Go. Le bouton de place occupée (en haut)
 affiche ces copies sous « Copies des vidéos dans le navigateur » et permet de les
 effacer ; la place est rendue à la prochaine ouverture du navigateur. Un ancien projet
-qui en dépendait affiche alors ses vidéos comme introuvables : importez à nouveau le
-même fichier, il est **rebranché** sur son clip, sans en ajouter un second.
+qui en dépendait affiche alors ses vidéos comme introuvables. Pour les rebrancher sur
+leurs fichiers d'origine — toujours sans copie — cliquez **« Retrouver mes vidéos… »**
+dans le message qui s'affiche (ou double-cliquez une vidéo introuvable dans les
+médias) et choisissez le dossier qui les contient : tout ce qui porte le même nom
+**et** la même taille, sous-dossiers compris, est rebranché d'un coup. Une vidéo
+retrouvée l'est pour tous les projets qui s'en servent. Réimporter le fichier
+fonctionne aussi : il se rebranche sur son clip, sans en ajouter un second.
 
 Les copies d'aperçu ne sont plus fabriquées pour les MP4 / MOV, que l'aperçu décode
 désormais directement en matériel (4K 60 compris) : elles coûtaient une copie
