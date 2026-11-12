@@ -1,7 +1,8 @@
 // Bibliotheque de medias : import instantane (aucune copie), sondage, vignettes.
 import { uid, once, toast } from './util.js';
 import { Mp4File, blobReader, isIsoBmff } from './mp4demux.js';
-import { sonSeul } from './sonseul.js';
+import { urlSonSeul } from './sonseul.js';
+import { FichierDistant, urlDe, enBlob } from './fichierdistant.js';
 
 const VIDEO_EXT = ['mp4', 'mov', 'm4v', 'mkv', 'webm', 'avi', 'wmv', 'mts', 'm2ts', 'ts', 'mpg', 'mpeg', '3gp', 'flv', 'ogv'];
 const AUDIO_EXT = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma'];
@@ -59,7 +60,7 @@ export class Library {
     if (u) return u;
     const f = this.files.get(mediaId);
     if (!f) return null;
-    u = URL.createObjectURL(f);
+    u = urlDe(f);
     this.urls.set(mediaId, u);
     return u;
   }
@@ -99,8 +100,8 @@ export class Library {
     }
     if (!this._sons) this._sons = new Map();
     this._sons.set(mediaId, null);
-    sonSeul(f).then((blob) => {
-      this._sons.set(mediaId, blob ? { url: URL.createObjectURL(blob), seul: true } : { url: this.url(mediaId), seul: false });
+    urlSonSeul(f).then((u) => {
+      this._sons.set(mediaId, u ? { url: u, seul: true } : { url: this.url(mediaId), seul: false });
     }, () => {
       this._sons.set(mediaId, { url: this.url(mediaId), seul: false });
     });
@@ -246,7 +247,7 @@ export class Library {
       if (it && typeof it.getFile === 'function') {
         const f = await it.getFile();
         items.push({ file: f, handle: it });
-      } else if (it instanceof File) {
+      } else if (it instanceof File || (it && it.distant)) {
         items.push({ file: it, handle: null });
       }
     }
@@ -276,6 +277,8 @@ export class Library {
         hasAudio: false, hasVideo: kind !== 'audio',
         codec: null, thumb: null, loading: true,
       };
+      // chemin sur le disque : le projet se rouvrira sans rien demander
+      if (file.distant) media.chemin = file.chemin;
       this.store.project.media.push(media);
       added.push(media);
     }
@@ -303,7 +306,7 @@ export class Library {
     if (!file) throw new Error('fichier absent');
 
     if (media.kind === 'image') {
-      const bmp = await createImageBitmap(file);
+      const bmp = await createImageBitmap(await enBlob(file));
       media.width = bmp.width; media.height = bmp.height;
       media.duration = 5; media.hasAudio = false; media.fps = 0;
       media.thumb = await bitmapToThumb(bmp);
@@ -346,7 +349,7 @@ export class Library {
     // 2) complement / secours via l'element video
     if (!media.duration || (!media.width && media.hasVideo)) {
       const v = this._video();
-      const url = URL.createObjectURL(file);
+      const url = urlDe(file);
       try {
         v.src = url;
         await once(v, 'loadedmetadata', 20000);
@@ -405,7 +408,8 @@ export class Library {
    * @returns {Promise<Array<HTMLCanvasElement>|null>} null si le fichier n'est
    *   pas lisible ainsi (l'appelant retombe sur l'element video)
    */
-  async _vignettesCles(media, times, W, H) {
+  async _vignettesCles(media, times, W, H, prioritaire = false) {
+    const occupe = prioritaire ? null : (this.occupeVignettes || this.occupe);
     if (typeof VideoDecoder === 'undefined') return null;
     const mp4 = await this.mp4Of(media.id);
     const track = mp4 && mp4.videoTrack;
@@ -415,52 +419,48 @@ export class Library {
       codedWidth: track.width, codedHeight: track.height,
     };
     try { if (!(await VideoDecoder.isConfigSupported(config)).supported) return null; } catch (_) { return null; }
-    let attente = null, erreur = null;
+    const rot = track.rotation || 0;
+    const couche = rot === 90 || rot === 270;
+    // une image cle par instant demande (plusieurs instants peuvent partager la meme)
+    const cleDe = (t) => mp4.keyBefore(track, mp4.indexAt(track, Math.max(0, t - (track.tOffset || 0))));
+    const cles = [...new Set(times.map(cleDe))];
+    const canvas = new Map();                         // image cle -> canvas
+    let erreur = null;
+    // Chaque image est dessinee des sa sortie puis fermee : on ne retient jamais
+    // plusieurs images 4K, que le decodeur materiel n'a pas les moyens de garder.
     const dec = new VideoDecoder({
-      output: (f) => { if (attente) { const a = attente; attente = null; a(f); } else f.close(); },
-      error: (e) => { erreur = e; if (attente) { const a = attente; attente = null; a(null); } },
+      output: (f) => {
+        const key = Math.round(f.timestamp);          // l'horodatage porte le numero de l'image cle
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = H;
+        const ctx = cv.getContext('2d');
+        // images brutes du decodeur : la rotation du conteneur est a appliquer
+        ctx.translate(W / 2, H / 2);
+        ctx.rotate((rot * Math.PI) / 180);
+        const dw = couche ? H : W, dh = couche ? W : H;
+        ctx.drawImage(f, -dw / 2, -dh / 2, dw, dh);
+        f.close();
+        canvas.set(key, cv);
+      },
+      error: (e) => { erreur = e; },
     });
     dec.configure(config);
-    const rot = track.rotation || 0;
-    const parCle = new Map();
-    const out = [];
     try {
-      for (const t of times) {
+      // Lecture dans l'ORDRE DU FICHIER : sur un disque dur, la tete avance
+      // sans revenir en arriere. Puis tout est decode d'un trait, avec un seul
+      // vidage du decodeur au lieu d'un par image.
+      const parPosition = [...cles].sort((x, y) => track.samples[x].offset - track.samples[y].offset);
+      for (const key of parPosition) {
         if (erreur) return null;
-        const idx = mp4.indexAt(track, Math.max(0, t - (track.tOffset || 0)));
-        const key = mp4.keyBefore(track, idx);
-        let cv = parCle.get(key);
-        if (!cv) {
-          // Ne pas disputer le disque ni le decodeur a l'apercu pendant la
-          // lecture : chaque vignette est une lecture a un endroit different
-          // du fichier, et sur un disque dur (USB surtout) ces allers-retours
-          // ralentissent toutes les autres lectures. On attend la pause.
-          for (let i = 0; i < 600 && this.occupe && this.occupe(); i++) await new Promise((r) => setTimeout(r, 250));
-          const [c] = await mp4.readSamples(track, key, key, true);   // l'image cle seule
-          if (!c) return null;
-          const recu = new Promise((r) => { attente = r; });
-          dec.decode(new EncodedVideoChunk({
-            type: 'key', timestamp: Math.round((c.sample.cts / track.timescale) * 1e6), data: c.data,
-          }));
-          await dec.flush().catch(() => {});
-          const f = await Promise.race([recu, new Promise((r) => setTimeout(() => r(null), 3000))]);
-          attente = null;
-          if (!f) return null;
-          cv = document.createElement('canvas');
-          cv.width = W; cv.height = H;
-          const ctx = cv.getContext('2d');
-          // images brutes du decodeur : la rotation du conteneur est a appliquer
-          ctx.translate(W / 2, H / 2);
-          ctx.rotate((rot * Math.PI) / 180);
-          const couche = rot === 90 || rot === 270;
-          const dw = couche ? H : W, dh = couche ? W : H;
-          ctx.drawImage(f, -dw / 2, -dh / 2, dw, dh);
-          f.close();
-          parCle.set(key, cv);
-        }
-        out.push(cv);
+        // ne pas disputer le disque a l'apercu (lecture, image attendue)
+        for (let i = 0; i < 600 && occupe && occupe(); i++) await new Promise((r) => setTimeout(r, 120));
+        const [c] = await mp4.readSamples(track, key, key, true);   // l'image cle seule
+        if (!c) return null;
+        dec.decode(new EncodedVideoChunk({ type: 'key', timestamp: key, data: c.data }));
       }
-      return out;
+      await Promise.race([dec.flush(), new Promise((r) => setTimeout(r, 8000))]).catch(() => {});
+      if (erreur) return null;
+      return times.map((t) => canvas.get(cleDe(t)) || null);
     } catch (_) {
       return null;
     } finally {
@@ -473,13 +473,15 @@ export class Library {
       const t = at ?? Math.min(Math.max(0.1, media.duration * 0.1), Math.max(0, media.duration - 0.05));
       const W = 192;
       const H = Math.max(1, Math.round(W * (media.height || 9) / (media.width || 16)));
-      const r = await this._vignettesCles(media, [t], W, H).catch(() => null);
+      // la vignette du media est attendue tout de suite apres l'import : une
+      // seule image cle a lire, elle passe devant tout le reste
+      const r = await this._vignettesCles(media, [t], W, H, true).catch(() => null);
       if (r && r[0]) return r[0].toDataURL('image/jpeg', 0.72);
     }
     const file = this.files.get(media.id);
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.playsInline = true;
-    const url = URL.createObjectURL(file);
+    const url = urlDe(file);
     try {
       v.src = url;
       await once(v, 'loadeddata', 20000);
@@ -499,9 +501,134 @@ export class Library {
 
   // ----------------------------------------------------- pellicule (timeline)
 
+  /**
+   * Vignette de pellicule pour l'instant `tSrc` d'un media : l'image cle qui le
+   * precede, decodee une seule fois puis gardee.
+   *
+   * Avant, la pellicule d'un clip etait tiree de 24 images reparties sur TOUT
+   * le rush : un clip de deux secondes pris dans une video de cinq minutes
+   * montrait une image d'ailleurs, et rien du tout tant que le rush entier
+   * n'etait pas traite — un rush apres l'autre. Ici, chaque vignette visible
+   * est celle de son instant, et l'on traite d'abord ce qui est a l'ecran.
+   *
+   * @returns {ImageBitmap|null|undefined} la vignette ; null si elle arrive
+   *   (surPret sera appele) ; undefined si ce media ne s'y prete pas (format
+   *   non MP4 : l'appelant prend l'ancienne pellicule).
+   */
+  vignetteA(mediaId, tSrc, surPret, prio = 0) {
+    if (!this.files.has(mediaId)) return null;
+    const mp4 = this.mp4.get(mediaId);
+    if (mp4 === undefined) {                          // index pas encore lu
+      if (!this._mp4EnCours) this._mp4EnCours = new Set();
+      if (!this._mp4EnCours.has(mediaId)) {
+        this._mp4EnCours.add(mediaId);
+        this.mp4Of(mediaId).finally(() => { this._mp4EnCours.delete(mediaId); if (surPret) surPret(); });
+      }
+      return this._miniature(mediaId, surPret);
+    }
+    const tr = mp4 && mp4.videoTrack;
+    if (!tr || !tr.samples.length) return undefined;
+    const idx = mp4.keyBefore(tr, mp4.indexAt(tr, Math.max(0, tSrc - (tr.tOffset || 0))));
+    if (!this.cles) this.cles = new Map();
+    let parMedia = this.cles.get(mediaId);
+    if (!parMedia) this.cles.set(mediaId, (parMedia = new Map()));
+    if (!this._clesJobs) this._clesJobs = new Map();
+    const cle = mediaId + '|' + idx;
+    if (parMedia.has(idx)) {
+      const b = parMedia.get(idx);
+      if (b) return b;
+      // en cours : on rapproche sa priorite de ce qui est demande maintenant
+      const job = this._clesJobs.get(cle);
+      if (job) job.prio = Math.min(job.prio, prio);
+      return this._remplacant(mediaId, idx, surPret);
+    }
+    parMedia.set(idx, null);                          // en cours
+    if (!this._clesFile) this._clesFile = [];
+    const job = { mediaId, idx, surPret, prio };
+    this._clesFile.push(job);
+    this._clesJobs.set(cle, job);
+    this._pomperCles();
+    return this._remplacant(mediaId, idx, surPret);
+  }
+
+  /**
+   * En attendant la vignette exacte : la plus proche deja decodee pour ce media,
+   * sinon la vignette du media lui-meme. La pellicule est ainsi remplie tout de
+   * suite, puis chaque case se precise.
+   */
+  _remplacant(mediaId, idx, surPret) {
+    const pm = this.cles && this.cles.get(mediaId);
+    let best = null, d = Infinity;
+    if (pm) for (const [k, b] of pm) if (b && Math.abs(k - idx) < d) { d = Math.abs(k - idx); best = b; }
+    return best || this._miniature(mediaId, surPret);
+  }
+
+  /** La vignette du media (celle des medias), en ImageBitmap. */
+  _miniature(mediaId, surPret) {
+    if (!this._minis) this._minis = new Map();
+    const deja = this._minis.get(mediaId);
+    if (deja) return deja;
+    if (deja === null) return null;                   // en preparation
+    const m = this.store.project.media.find((x) => x.id === mediaId);
+    if (!m || !m.thumb) return null;
+    this._minis.set(mediaId, null);
+    fetch(m.thumb).then((r) => r.blob()).then((b) => createImageBitmap(b))
+      .then((bmp) => { this._minis.set(mediaId, bmp); if (surPret) surPret(); })
+      .catch(() => this._minis.delete(mediaId));
+    return null;
+  }
+
+  async _pomperCles() {
+    if (this._clesBusy) return;
+    this._clesBusy = true;
+    const rappels = new Set();
+    try {
+      while (this._clesFile.length) {
+        // la lecture d'abord : on attend la pause pour toucher au disque
+        const occupe = this.occupeVignettes || this.occupe;
+        while (occupe && occupe()) await new Promise((r) => setTimeout(r, 120));
+        // la plus prioritaire d'abord : ce qui est a l'ecran, pres de la tete
+        let iMin = 0;
+        for (let i = 1; i < this._clesFile.length; i++) if (this._clesFile[i].prio < this._clesFile[iMin].prio) iMin = i;
+        const job = this._clesFile.splice(iMin, 1)[0];
+        const lot = [job];
+        // avec elle, les plus prioritaires de la meme video (un seul decodeur)
+        const memes = this._clesFile.filter((j) => j.mediaId === job.mediaId).sort((a, b) => a.prio - b.prio).slice(0, 11);
+        for (const j of memes) { lot.push(j); this._clesFile.splice(this._clesFile.indexOf(j), 1); }
+        for (const j of lot) this._clesJobs.delete(j.mediaId + '|' + j.idx);
+        const parMedia = this.cles && this.cles.get(job.mediaId);
+        const media = this.store.project.media.find((m) => m.id === job.mediaId);
+        const mp4 = this.mp4.get(job.mediaId);
+        const tr = mp4 && mp4.videoTrack;
+        if (!parMedia || !media || !tr || !this.files.has(job.mediaId)) {
+          if (parMedia) for (const j of lot) parMedia.delete(j.idx);
+          continue;
+        }
+        const H = 64;
+        const W = Math.max(8, Math.round((H * (media.width || 16)) / (media.height || 9)));
+        const times = lot.map((j) => tr.samples[j.idx].cts / tr.timescale + (tr.tOffset || 0));
+        const cvs = await this._vignettesCles(media, times, W, H).catch(() => null);
+        for (let i = 0; i < lot.length; i++) {
+          let bmp = false;                              // false : echec, on n'insiste pas
+          if (cvs && cvs[i]) { try { bmp = await createImageBitmap(cvs[i]); } catch (_) {} }
+          if (this.cles.get(job.mediaId) === parMedia) parMedia.set(lot[i].idx, bmp);
+          if (lot[i].surPret) rappels.add(lot[i].surPret);
+        }
+        for (const r of rappels) r();
+        rappels.clear();
+      }
+    } finally {
+      this._clesBusy = false;
+    }
+  }
+
   /** Demande une pellicule (bitmaps) pour un media. Non bloquant. */
   requestStrip(mediaId, count, onReady) {
     count = Math.min(count, 24);
+    // Fichier introuvable : rien a fabriquer, et surtout rien a NOTER — une
+    // demande retenue « en cours » empechait la pellicule de se faire une fois
+    // le fichier retrouve.
+    if (!this.files.has(mediaId)) return null;
     const cur = this.strips.get(mediaId);
     // deja assez de vignettes, ou generation deja demandee a ce niveau de detail
     if (cur && (cur.count >= count || cur.requested >= count)) return cur;
@@ -527,7 +654,7 @@ export class Library {
   async _buildStrip({ mediaId, count, onReady }) {
     const media = this.store.project.media.find((m) => m.id === mediaId);
     const file = this.files.get(mediaId);
-    if (!media || !file || !media.hasVideo) return;
+    if (!media || !file || !media.hasVideo) { this.strips.delete(mediaId); return; }
     {
       const H = 44;
       const W = Math.max(2, Math.round(H * (media.width || 16) / (media.height || 9)));
@@ -548,7 +675,7 @@ export class Library {
     }
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.playsInline = true;
-    const url = URL.createObjectURL(file);
+    const url = urlDe(file);
     const bitmaps = [];
     try {
       v.src = url;
@@ -605,7 +732,18 @@ export class Library {
     }
   }
 
+  /** Vignettes par image cle d'un media : a refaire (fichier change). */
+  _oublierCles(mediaId) {
+    const m = this.cles && this.cles.get(mediaId);
+    if (m) for (const b of m.values()) if (b && b.close) b.close();
+    if (this.cles) this.cles.delete(mediaId);
+    const mini = this._minis && this._minis.get(mediaId);
+    if (mini && mini.close) mini.close();
+    if (this._minis) this._minis.delete(mediaId);
+  }
+
   remove(mediaId) {
+    this._oublierCles(mediaId);
     const u = this.urls.get(mediaId);
     if (u) URL.revokeObjectURL(u);
     this.urls.delete(mediaId);
@@ -625,12 +763,24 @@ export class Library {
   /** Rebranche un media sur son vrai fichier (sans rien copier). */
   relier(mediaId, file, handle) {
     this.files.set(mediaId, file);
+    if (file && file.distant) {
+      const m = this.store.project.media.find((x) => x.id === mediaId);
+      if (m) m.chemin = file.chemin;
+    }
     if (handle) this.handles.set(mediaId, handle);
     this.depuisCopie.delete(mediaId);
     const u = this.urls.get(mediaId);
     if (u) { try { URL.revokeObjectURL(u); } catch (_) {} }
     this.urls.delete(mediaId); this.mp4.delete(mediaId);
     if (this._sons) this._sons.delete(mediaId);
+    // Pellicule et forme d'onde demandees pendant que le fichier manquait :
+    // elles n'ont jamais pu se faire. On les oublie pour qu'elles se refassent.
+    const st = this.strips.get(mediaId);
+    if (st && st.bitmaps) for (const b of st.bitmaps) b.close && b.close();
+    this.strips.delete(mediaId);
+    this._oublierCles(mediaId);
+    if (this.waves.get(mediaId) == null) this.waves.delete(mediaId);
+    if (this.surRelie) this.surRelie(mediaId);
   }
 
   /** Medias du projet dont le fichier n'est pas (re)lie. */

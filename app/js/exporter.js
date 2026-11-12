@@ -506,6 +506,24 @@ export class Exporter {
     this.cancelled = false;
     const from = o.from || 0;
     const to = o.to || projectDuration(project);
+    // Une video introuvable sortirait en noir, sans que rien ne le signale :
+    // mieux vaut refuser et dire laquelle.
+    {
+      const manquants = new Set();
+      for (const tr of project.tracks) {
+        if (tr.hidden && tr.kind !== 'audio') continue;
+        for (const c of tr.clips) {
+          if (c.t0 >= to || c.t0 + c.dur <= from || c.kind === 'text') continue;
+          const m = mediaOf(project, c);
+          if (m && !this.lib.files.has(m.id)) manquants.add(m.name);
+        }
+      }
+      if (manquants.size) {
+        const noms = [...manquants];
+        throw new Error(`${noms.length} video(s) introuvable(s) : ${noms.slice(0, 3).join(', ')}`
+          + (noms.length > 3 ? '…' : '') + ". Retrouvez-les (« Retrouver mes videos ») avant d'exporter.");
+      }
+    }
     const dur = Math.max(1 / o.fps, to - from);
     const total = Math.max(1, Math.round(dur * o.fps));
     const W = o.width, H = o.height;

@@ -16,9 +16,16 @@ const txt = (u8, o, n) => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o 
 // moins de lectures, c'est deux fois moins de deplacements. Un rush iPhone 4K
 // a 50-90 Mb/s en consomme 6 a 11 Mo par seconde de video.
 const CHUNK = 8 * 1024 * 1024;
+// Premier bloc apres un saut. Pour afficher UNE image apres un saut, il faut lire
+// de l'image cle a l'image voulue — une demi-GOP en moyenne, 2 a 3 Mo sur un rush
+// iPhone. Lire d'emblee 8 Mo coutait 0,8 s sur un disque a 10 Mo/s, dont plus de
+// la moitie pour rien. On commence petit, et l'on double tant que la lecture
+// continue d'un seul tenant (lecture video, export) jusqu'a 8 Mo.
+const PREMIER_BLOC = 1024 * 1024;
 
 export function blobReader(blob) {
   let cache = null, cacheStart = 0, cacheEnd = 0;
+  let elan = PREMIER_BLOC;
   const stats = { calls: 0, hits: 0, bytes: 0, ms: 0 };
   return {
     size: blob.size,
@@ -53,8 +60,12 @@ export function blobReader(blob) {
         stats.bytes += big.length; stats.ms += performance.now() - t0;
         return big;
       }
+      // dans la continuite du bloc precedent : on lit plus loin d'avance ;
+      // apres un saut : on repart d'un petit bloc
+      const suite = cache && start >= cacheStart && start <= cacheEnd + 2 * 1024 * 1024;
+      elan = suite ? Math.min(CHUNK, elan * 2) : PREMIER_BLOC;
       const cs = start;
-      const ce = Math.min(blob.size, start + Math.max(CHUNK, want));
+      const ce = Math.min(blob.size, start + Math.max(elan, want));
       cache = new Uint8Array(await blob.slice(cs, ce).arrayBuffer());
       cacheStart = cs; cacheEnd = cs + cache.length;
       stats.bytes += cache.length; stats.ms += performance.now() - t0;

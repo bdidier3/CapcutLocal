@@ -40,7 +40,9 @@ export class Prechauffe {
 
   /** Lecture en cours, ou l'utilisateur vient d'agir : on laisse le disque a l'apercu. */
   _occupe() {
-    return this.player.playing || performance.now() - (this.player.derniereAction || 0) < 350;
+    // l'image a l'ecran passe avant tout : on attend qu'elle soit arrivee
+    return this.player.playing || this.player._attenteVue === true
+      || performance.now() - (this.player.derniereAction || 0) < 1500;
   }
 
   async _attendreLibre() {

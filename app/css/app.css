@@ -329,7 +329,7 @@ symbol.solid path,symbol.solid circle{fill:currentColor;stroke:none}
 .safe::after{inset:10%;border-color:rgba(255,255,255,.14)}
 .viewer-empty{
   position:absolute;inset:0;display:grid;place-content:center;justify-items:center;
-  gap:10px;text-align:center;color:var(--muted);z-index:2
+  gap:10px;text-align:center;color:var(--muted);z-index:2;background:var(--bg)
 }
 .viewer-empty .i{color:var(--line-3)}
 .viewer-empty p{font-size:14px}
@@ -415,6 +415,10 @@ select{cursor:pointer}
   background:rgba(0,0,0,.25)
 }
 .stage-attente .spin{width:26px;height:26px;border-width:3px}
+.stage-manquant{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;color:var(--muted);font-size:13px;background:rgba(0,0,0,.35);z-index:3
+}
 /* options repliees du telechargement : le chemin normal reste un seul champ */
 .dl-avance{border-top:1px solid var(--line);padding-top:10px;margin-top:2px}
 .dl-avance>summary{cursor:pointer;font-size:12px;color:var(--faint);user-select:none}

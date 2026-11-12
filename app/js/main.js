@@ -17,6 +17,7 @@ import { idbSave, idbGet, idbList, idbViderCopies, idbPoignee } from './idb.js';
 import { detecterTemps } from './beats.js';
 import { Home } from './home.js';
 import { Prechauffe } from './prechauffe.js';
+import { FichierDistant } from './fichierdistant.js';
 import { reverseClip, freezeFrame, trimBefore, trimAfter } from './tools.js';
 import { TEXT_STYLES, applyStyle, fontCss } from './fonts.js';
 
@@ -50,7 +51,11 @@ try {
 player = new Player(store, lib, renderer);
 // les vignettes se font discretes pendant la lecture
 // (et pendant qu'on coupe ou deplace la tete : l'apercu a besoin du disque)
-lib.occupe = () => player.playing || performance.now() - (player.derniereAction || 0) < 2000;
+// (et 1,5 s apres chaque action : pendant qu'on navigue, le disque est a l'apercu)
+lib.occupe = () => player.playing || player._attenteVue === true || performance.now() - (player.derniereAction || 0) < 1500;
+// Les vignettes de la timeline sont de toutes petites lectures (une image cle) :
+// elles n'attendent que la lecture et l'image en cours, pas la fin de la navigation.
+lib.occupeVignettes = () => player.playing || player._attenteVue === true || performance.now() - (player.derniereAction || 0) < 300;
 
 // Lecture anticipee des passages utiles des rushes (voir prechauffe.js).
 const prechauffe = new Prechauffe(store, lib, player);
@@ -197,7 +202,19 @@ function etatEnregistrement(ok) {
 }
 $('#btnFmt').onclick = () => $('#btnSettings').click();
 // tete deplacee a la main : on prechauffe d'abord autour de sa nouvelle position
-store.on('seek', () => { if (!player.playing) prechauffe.demander(); });
+// tout deplacement de la tete (y compris en glissant sur la regle) compte
+// comme une action : les travaux de fond laissent le disque a l'apercu
+store.on('seek', () => { if (!player.playing) { player.derniereAction = performance.now(); prechauffe.demander(); signalerOccupe(); } });
+player.on('playstate', (on) => { if (on) signalerOccupe(); });
+
+/** Previent le serveur qu'on se sert du disque (au plus deux fois par seconde). */
+function signalerOccupe() {
+  const t = performance.now();
+  if (t - (signalerOccupe.a || 0) < 500) return;
+  signalerOccupe.a = t;
+  fetch(`/api/occupe?tk=${TK}`).catch(() => {});
+}
+setInterval(() => { if (player.playing) signalerOccupe(); }, 1000);
 store.on('seek', () => { $('#tcCur').textContent = fmtTime(store.playhead, store.project.fps); });
 store.on('reload', () => { layoutStage(); refreshHeader(); renderBin(); inspector.render(); });
 // L'apercu n'affiche jamais un plan approximatif : quand l'image demandee
@@ -210,6 +227,12 @@ player.on('attente', (en) => {
   // l'image arrive en quelques dizaines de millisecondes
   attenteTimer = setTimeout(() => $('#stageAttente').classList.remove('hidden'), 120);
 });
+
+// video introuvable a l'image : un message clair et de quoi la retrouver
+player.on('manquant', (m) => $('#stageManquant').classList.toggle('hidden', !m));
+$('#btnRetrouverApercu').onclick = () => retrouverVideos();
+// fichier retrouve : l'apercu oublie ce qu'il avait tente sans lui
+lib.surRelie = (id) => { player.oublierMedia(id); timeline.draw(); };
 
 player.on('stats', (s) => { $('#stats').textContent = `${s.fps} i/s · ${s.ms.toFixed(1)} ms`; });
 
@@ -627,9 +650,7 @@ async function pollDownload() {
     try {
       const fichiers = [];
       for (const f of liste) {
-        const res = await fetch(`/media?tk=${TK}&p=${encodeURIComponent(f.path)}`);
-        const blob = await res.blob();
-        fichiers.push(new File([blob], f.name, { type: blob.type || '' }));
+        fichiers.push(new FichierDistant({ chemin: f.path, name: f.name, size: f.size, tk: TK }));
       }
       const added = await lib.add(fichiers);
       // le fichier est sur le disque : le projet garde son chemin plutot
@@ -824,6 +845,7 @@ async function importFiles(list) {
   if (relies.length) {
     store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
     toast(`${relies.length} video(s) retrouvee(s)`, 'ok');
+    cheminsEnFond(relies);
   }
   if (!added.length) return;
   // Ce qu'on importe, c'est pour le monter : on le pose a la suite sur la
@@ -842,6 +864,7 @@ async function importFiles(list) {
   if (added.every((m) => m.kind === 'audio') && activeTab === 'media') setTab('audio');
   renderBin();
   toast(`${added.length} fichier(s) importe(s)`, 'ok');
+  cheminsEnFond(added);
   preparerApercus(added);
 }
 
@@ -1680,6 +1703,17 @@ $('#btnImportAudio').onclick = pickFiles;
 $('#filePicker').onchange = (e) => { importFiles(e.target.files); e.target.value = ''; };
 
 async function pickFiles() {
+  // La fenetre de Windows (via le serveur) donne le CHEMIN des fichiers : le
+  // projet pourra les relire plus tard sans rien demander, sans les copier.
+  try {
+    const r = await fetch(`/api/import?tk=${TK}`, { method: 'POST' }).then((x) => x.json());
+    if (r && Array.isArray(r.files)) {
+      if (!r.files.length) return;                         // fenetre fermee
+      return importFiles(r.files.map((f) => new FichierDistant({
+        chemin: f.path, name: f.name, size: f.size, lastModified: f.mtime, tk: TK,
+      })));
+    }
+  } catch (_) { /* serveur sans fenetre de dialogue : on passe par le navigateur */ }
   if (window.showOpenFilePicker) {
     try {
       const handles = await window.showOpenFilePicker({
@@ -2457,84 +2491,173 @@ async function loadProject(id) {
   for (const [id2, f] of Object.entries(rec.files || {})) {
     if (f) { lib.files.set(id2, f); lib.depuisCopie.add(id2); }
   }
-  const enAttente = await rebrancherFichiers(rec.handles || {});
+  const { recherche } = await rebrancherFichiers(rec.handles || {});
   store.seek(rec.playhead || 0);
   store.emit('reload');
   store.changed();
   timeline.fit(); syncZoomSlider();
-  const miss = lib.missing();
-  if (enAttente.length) demanderAcces(enAttente);
-  else if (miss.length) signalerManquants();
+  // tout juste rouvert : rien n'a ete modifie
+  etatEnregistrement(true);
+  // Le projet est deja a l'ecran ; ce que le serveur retrouve sur le disque
+  // arrive juste apres, sans rien bloquer.
+  const projetCherche = projectId;
+  recherche.then((n) => {
+    if (projectId !== projetCherche) return;
+    if (n) {
+      store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
+      toast(`${n} video(s) retrouvee(s) automatiquement`, 'ok', 3500);
+      saveProject(true);                       // le projet retient les chemins
+    }
+    if (lib.missing().length) { signalerManquants(); retrouverEnFond(projetCherche); }
+  });
   // Les copies d'apercu survivent aux sessions : on les rebranche, et on
   // fabrique celles qui manquent.
   preparerApercus(store.project.media);
 }
 
+/** Fichier lu par le serveur, a partir d'un chemin et de ce qu'on en sait. */
+function distant(chemin, m, st) {
+  return new FichierDistant({ chemin, name: m.name, size: st ? st.size : m.size, lastModified: st ? st.mtime : 0, tk: TK });
+}
+
 /**
- * Rouvre les videos d'un projet a partir de leurs poignees.
+ * Demande au serveur ou se trouvent ces medias (nom + taille), et les rebranche.
+ * Le serveur cherche dans les dossiers deja connus, les dossiers personnels et
+ * les autres disques ; il ne lit que des listes de dossiers.
+ * @returns {Promise<number>} nombre de medias rebranches
+ */
+async function localiserMedias(medias, dossiers = []) {
+  if (!medias.length && !dossiers.length) return 0;
+  let trouves = {};
+  try {
+    const r = await fetch(`/api/localiser?tk=${TK}`, {
+      method: 'POST',
+      body: JSON.stringify({ fichiers: medias.map((m) => ({ name: m.name, size: m.size })), dossiers }),
+    }).then((x) => x.json());
+    trouves = r.trouves || {};
+  } catch (_) { return 0; }
+  let n = 0;
+  for (const m of medias) {
+    const chemin = trouves[m.name + '|' + m.size];
+    if (!chemin) continue;
+    lib.relier(m.id, distant(chemin, m), null);
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Rouvre les videos d'un projet, SANS RIEN DEMANDER.
  *
- * Le navigateur ne laisse relire un fichier qu'avec l'accord de l'utilisateur.
- * Ouvert d'un clic, le projet peut le demander tout de suite ; sinon (ou si la
- * demande echoue faute de clic recent), on renvoie les poignees en attente.
- * Les videos telechargees, elles, sont relues a leur chemin sur le disque.
+ * 1. Les medias dont on connait le chemin sont relus par le serveur, sur
+ *    place : instantane, aucune autorisation.
+ * 2. Une poignee de fichier n'est utilisee que si le navigateur l'autorise
+ *    deja ; on ne declenche jamais sa fenetre d'autorisation.
+ * 3. Pour le reste, le serveur cherche le fichier sur le disque (nom + taille),
+ *    et le projet retient son chemin pour la prochaine fois.
  */
 async function rebrancherFichiers(handles) {
-  const enAttente = [];
+  const media = store.project.media;
+  // 1. chemins connus, verifies d'un seul appel
+  const avecChemin = media.filter((m) => m.chemin && !lib.files.has(m.id));
+  if (avecChemin.length) {
+    try {
+      const st = await fetch(`/api/stats?tk=${TK}`, {
+        method: 'POST', body: JSON.stringify({ chemins: avecChemin.map((m) => m.chemin) }),
+      }).then((x) => x.json());
+      for (const m of avecChemin) {
+        const s2 = st[m.chemin];
+        if (s2 && (!m.size || s2.size === m.size)) lib.relier(m.id, distant(m.chemin, m, s2), null);
+      }
+    } catch (_) {}
+  }
+  // 2. poignees deja autorisees (sans jamais ouvrir de fenetre)
   const candidats = { ...handles };
-  // Un media sans poignee dans CE projet a peut-etre ete retrouve dans un autre :
-  // le registre commun le sait (meme nom, meme taille).
-  for (const m of store.project.media) {
-    if (candidats[m.id] || lib.files.has(m.id) || m.chemin) continue;
+  for (const m of media) {
+    if (candidats[m.id] || lib.files.has(m.id)) continue;
     const h = await idbPoignee(m.name, m.size);
     if (h) candidats[m.id] = h;
   }
   for (const [mid, h] of Object.entries(candidats)) {
-    if (!h || typeof h.getFile !== 'function') continue;
-    lib.handles.set(mid, h);
+    if (!h || typeof h.getFile !== 'function' || lib.files.has(mid)) continue;
     try {
-      let p = await h.queryPermission({ mode: 'read' });
-      if (p !== 'granted') {
-        try { p = await h.requestPermission({ mode: 'read' }); } catch (_) { p = 'prompt'; }
-      }
-      if (p === 'granted') {
-        const f = await h.getFile();
-        const m = store.project.media.find((x) => x.id === mid);
-        // le fichier a change depuis (meme nom, autre contenu) : on ne branche pas
-        if (m && m.size && f.size !== m.size) { lib.handles.delete(mid); continue; }
-        lib.relier(mid, f, h);
-      } else if (!lib.files.has(mid)) enAttente.push([mid, h]);
-    } catch (_) {
-      if (!lib.files.has(mid)) enAttente.push([mid, h]);   // fichier deplace ou efface
-    }
+      if ((await h.queryPermission({ mode: 'read' })) !== 'granted') continue;
+      const f = await h.getFile();
+      const m = media.find((x) => x.id === mid);
+      if (m && m.size && f.size !== m.size) continue;
+      lib.relier(mid, f, h);
+    } catch (_) { /* fichier deplace ou efface */ }
   }
-  for (const m of store.project.media) {
-    if (lib.files.has(m.id) || !m.chemin) continue;
-    try {
-      const r = await fetch(`/media?tk=${TK}&p=${encodeURIComponent(m.chemin)}`);
-      if (r.ok) { const b = await r.blob(); lib.files.set(m.id, new File([b], m.name, { type: b.type || '' })); }
-    } catch (_) {}
-  }
-  return enAttente;
+  // 3. le serveur cherche le reste sur le disque, en arriere-plan
+  const reste = media.filter((m) => !lib.files.has(m.id) && m.kind !== 'text');
+  // (renvoye dans un objet : une promesse renvoyee telle quelle serait
+  // attendue par l'appelant, et l'ouverture du projet attendrait la recherche)
+  if (!reste.length) return { recherche: Promise.resolve(0) };
+  const t = toast(`Recherche de ${reste.length} video(s) sur le disque…`, 'info', 120000);
+  return { recherche: localiserMedias(reste).finally(() => t.remove()) };
 }
 
-/** Autorisation refusee faute de clic : le prochain clic la redemande. */
-function demanderAcces(enAttente) {
-  const t = toast(`Cliquez n'importe ou pour autoriser l'acces a ${enAttente.length} video(s) du projet`, 'info', 60000);
-  const reessayer = async () => {
-    let ok = 0;
-    for (const [mid, h] of enAttente) {
+/**
+ * Tant que des videos manquent, on les recherche de temps en temps, sans rien
+ * demander : le cas typique est le disque externe branche APRES l'ouverture du
+ * projet. Des qu'il est la, les videos reviennent toutes seules.
+ */
+function retrouverEnFond(id) {
+  if (retrouverEnFond.actif === id) return;
+  retrouverEnFond.actif = id;
+  const tour = async () => {
+    if (projectId !== id || retrouverEnFond.actif !== id) return;
+    const manquants = lib.missing().filter((m) => m.kind !== 'text');
+    if (!manquants.length) { retrouverEnFond.actif = null; return; }
+    let n = 0;
+    // chemins deja connus : le disque est peut-etre revenu
+    const connus = manquants.filter((m) => m.chemin);
+    if (connus.length) {
       try {
-        const p = await h.requestPermission({ mode: 'read' });
-        if (p === 'granted') { lib.relier(mid, await h.getFile(), h); ok++; }
+        const st = await fetch(`/api/stats?tk=${TK}`, {
+          method: 'POST', body: JSON.stringify({ chemins: connus.map((m) => m.chemin) }),
+        }).then((x) => x.json());
+        for (const m of connus) {
+          const s2 = st[m.chemin];
+          if (s2 && (!m.size || s2.size === m.size)) { lib.relier(m.id, distant(m.chemin, m, s2), null); n++; }
+        }
       } catch (_) {}
     }
-    t.remove();
-    store.changed('media'); player.invalidate(); timeline.draw();
-    const miss = lib.missing().length;
-    if (miss) signalerManquants();
-    else if (ok) toast('Videos du projet retrouvees', 'ok');
+    const reste = lib.missing().filter((m) => m.kind !== 'text');
+    if (reste.length) n += await localiserMedias(reste);
+    if (projectId !== id) return;
+    if (n) {
+      store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
+      toast(`${n} video(s) retrouvee(s) automatiquement`, 'ok', 3500);
+      saveProject(true);
+    }
+    if (lib.missing().length) setTimeout(tour, 15000);
+    else retrouverEnFond.actif = null;
   };
-  document.addEventListener('pointerdown', reessayer, { once: true, capture: true });
+  setTimeout(tour, 15000);
+}
+
+/**
+ * Apres un glisser-deposer, le navigateur ne donne pas le chemin du fichier.
+ * On le fait retrouver par le serveur, en arriere-plan : le projet le retient
+ * et se rouvrira plus tard sans rien demander.
+ */
+async function cheminsEnFond(medias) {
+  const sansChemin = medias.filter((m) => m && !m.chemin && lib.files.has(m.id) && !lib.files.get(m.id).distant);
+  if (!sansChemin.length) return;
+  // rien ne presse : on attend que l'apercu laisse le disque libre
+  for (let i = 0; i < 240 && lib.occupe(); i++) await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = await fetch(`/api/localiser?tk=${TK}`, {
+      method: 'POST', body: JSON.stringify({ fichiers: sansChemin.map((m) => ({ name: m.name, size: m.size })) }),
+    }).then((x) => x.json());
+    let n = 0;
+    for (const m of sansChemin) {
+      const chemin = (r.trouves || {})[m.name + '|' + m.size];
+      if (chemin) { m.chemin = chemin; n++; }
+    }
+    if (n) scheduleAutosave();
+  } catch (_) {}
 }
 
 /** Annonce les videos introuvables, avec de quoi les retrouver d'un clic. */
@@ -2542,58 +2665,34 @@ function signalerManquants() {
   const n = lib.missing().length;
   if (!n) return;
   const t = toast(`${n} video(s) introuvable(s) dans ce projet`, 'warn', 30000);
-  if (window.showDirectoryPicker) {
-    t.append(' ', el('button', {
-      class: 'btn sm', text: 'Retrouver mes videos…',
-      onclick: () => { t.remove(); retrouverVideos(); },
-    }));
-  }
+  t.append(' ', el('button', {
+    class: 'btn sm', text: 'Retrouver mes videos…',
+    onclick: () => { t.remove(); retrouverVideos(); },
+  }));
 }
 
 /**
  * Retrouve les videos manquantes dans un dossier choisi par l'utilisateur.
  *
- * Rien n'est copie : on garde une poignee vers chaque fichier d'origine, comme
- * a l'import. Un fichier correspond s'il porte le meme nom ET la meme taille —
- * jamais un homonyme. Les sous-dossiers sont parcourus (quatre niveaux).
+ * C'est le serveur qui cherche (fenetre de choix de dossier de Windows, puis
+ * parcours du dossier et de ses sous-dossiers) : aucune autorisation a donner,
+ * rien n'est copie. Un fichier correspond s'il porte le meme nom ET la meme
+ * taille. Le dossier est retenu : les prochains projets s'y retrouvent seuls.
  */
 async function retrouverVideos() {
   const manquants = lib.missing();
   if (!manquants.length) return toast('Aucune video manquante', 'ok');
-  if (!window.showDirectoryPicker) return toast('Reimportez les fichiers manquants', 'warn');
-  let dir;
-  try { dir = await window.showDirectoryPicker({ mode: 'read', id: 'cutlocal-videos' }); }
-  catch (_) { return; }                                   // fenetre fermee
-  const parNom = new Map();
-  for (const m of manquants) {
-    const k = m.name.toLowerCase();
-    if (!parNom.has(k)) parNom.set(k, []);
-    parNom.get(k).push(m);
-  }
+  let dossier = null;
+  try { dossier = (await fetch(`/api/folder?tk=${TK}`, { method: 'POST' }).then((x) => x.json())).path; } catch (_) {}
+  if (!dossier) return;                                   // fenetre fermee
   const t = toast('Recherche des videos…', 'info', 120000);
-  let trouves = 0, vus = 0;
-  const parcourir = async (d, prof) => {
-    for await (const [nom, h] of d.entries()) {
-      if (++vus > 20000 || trouves === manquants.length) return;
-      if (h.kind === 'directory') { if (prof < 4) await parcourir(h, prof + 1); continue; }
-      const liste = parNom.get(nom.toLowerCase());
-      if (!liste) continue;
-      let f;
-      try { f = await h.getFile(); } catch (_) { continue; }
-      for (const m of liste) {
-        if (lib.files.has(m.id) || (m.size && f.size !== m.size)) continue;
-        lib.relier(m.id, f, h);
-        trouves++;
-      }
-    }
-  };
-  try { await parcourir(dir, 0); } catch (_) {}
+  const trouves = await localiserMedias(manquants, [dossier]);
   t.remove();
   store.changed('media'); player.invalidate(); timeline.draw(); renderBin();
   const reste = lib.missing().length;
   if (trouves) {
     toast(`${trouves} video(s) retrouvee(s)` + (reste ? ` — ${reste} toujours introuvable(s)` : ''), reste ? 'warn' : 'ok', 6000);
-    saveProject(true);                       // les poignees passent dans le registre commun
+    saveProject(true);                       // le projet retient les chemins
   } else {
     toast('Aucune video correspondante dans ce dossier (meme nom et meme taille)', 'warn', 6000);
   }
@@ -2605,6 +2704,7 @@ function newBlankProject(name) {
   lib.files.clear(); lib.urls.clear(); lib.mp4.clear(); lib.strips.clear(); lib.waves.clear();
   if (lib._sons) lib._sons.clear();
   lib.apercus.clear();
+  if (lib.cles) lib.cles.clear();
   binSel.clear();
   projectId = 'p' + Math.random().toString(36).slice(2, 10);
   store.project = newProject({ name: name || nextProjectName() });
@@ -2614,6 +2714,9 @@ function newBlankProject(name) {
   store.emit('reload'); store.changed();
   timeline.fit(); syncZoomSlider();
   setTab('media');
+  // l'apercu montrait encore la derniere image du projet precedent
+  player.invalidate();
+  etatEnregistrement(true);                  // rien a enregistrer encore
 }
 
 function nextProjectName() {

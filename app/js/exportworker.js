@@ -15,9 +15,12 @@ import { ClipDecoder } from './decode.js';
 import { Mp4File, blobReader } from './mp4demux.js';
 import { activeAt, mediaOf, sourceTime } from './state.js';
 import { whenDrained } from './util.js';
+import { revivre, urlDe } from './fichierdistant.js';
 
 /** Bibliotheque minimale : juste ce dont le decodeur a besoin, sans DOM. */
-function makeLib(files) {
+function makeLib(recus) {
+  // un fichier lu par le serveur arrive en simple objet : on le reconstruit
+  const files = new Map([...recus].map(([id, f]) => [id, revivre(f)]));
   const urls = new Map();
   const mp4s = new Map();
   return {
@@ -28,7 +31,7 @@ function makeLib(files) {
       if (u) return u;
       const f = files.get(id);
       if (!f) return null;
-      u = URL.createObjectURL(f);
+      u = urlDe(f);
       urls.set(id, u);
       return u;
     },

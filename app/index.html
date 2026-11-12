@@ -185,6 +185,10 @@
         <!-- l'apercu prefere ne rien montrer plutot qu'un plan qui n'est pas
              celui du montage : ce voyant dit que l'image demandee arrive -->
         <div class="stage-attente hidden" id="stageAttente"><span class="spin"></span></div>
+        <div class="stage-manquant hidden" id="stageManquant">
+          <span>Video introuvable</span>
+          <button type="button" class="btn sm soft" id="btnRetrouverApercu">Retrouver mes videos…</button>
+        </div>
       </div>
       <div class="viewer-empty" id="viewerEmpty">
         <svg class="i xl"><use href="#i-film"/></svg>

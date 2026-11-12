@@ -1033,10 +1033,23 @@ Audio : MP3, WAV, M4A, AAC, FLAC, OGG, OPUS. Images : PNG, JPG, WEBP, BMP, GIF.
 Les projets sont enregistrés automatiquement dans le navigateur (IndexedDB). « Ouvrir »
 liste les projets enregistrés.
 
-**Aucune copie de vos vidéos n'est faite.** Un projet ne garde qu'une *autorisation
-d'accès* au fichier d'origine (quelques octets) ; à la réouverture, le navigateur vous
-demande simplement d'autoriser à nouveau la lecture. Les vidéos téléchargées par lien
-sont retrouvées à leur emplacement sur le disque.
+**Aucune copie de vos vidéos n'est faite, et rien n'est jamais demandé.** Un projet
+retient le **chemin** de chaque vidéo sur le disque ; c'est le serveur local qui la
+relit sur place. Un projet se rouvre donc instantanément, sans fenêtre
+d'autorisation du navigateur.
+
+- **Importer** ouvre la fenêtre de Windows, qui donne directement le chemin.
+- Après un **glisser-déposer** (le navigateur ne donne pas le chemin), le serveur
+  le retrouve tout seul, en arrière-plan, par le nom et la taille du fichier.
+- À la **réouverture**, une vidéo dont le chemin n'est pas connu (anciens projets)
+  est cherchée automatiquement : dossiers déjà connus, Bureau, Vidéos,
+  Téléchargements, Images, puis les autres disques (externes compris). Seules les
+  listes de dossiers sont lues, et seul un fichier de **même nom et même taille**
+  est retenu. Mesuré : 5 rushes retrouvés en 2,2 s sur un disque USB jamais
+  parcouru ; ensuite, tout est là immédiatement.
+- Si une vidéo reste introuvable (disque débranché, fichier déplacé), l'aperçu
+  le dit et **« Retrouver mes vidéos… »** demande seulement le dossier ; ce dossier
+  est retenu pour les projets suivants.
 
 Les anciennes versions rangeaient au contraire une **copie complète** de chaque vidéo
 importée dans le profil du navigateur, sur le disque C, invisible depuis l'explorateur

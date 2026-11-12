@@ -154,7 +154,9 @@ export class Player extends Emitter {
       }
       // <audio> et non <video> : on n'en veut que le son.
       const el = document.createElement('audio');
-      el.preload = 'auto';
+      // a l'arret, seulement l'en-tete : le prechargement du son se fait au
+      // lancement de la lecture, sans faire courir la tete du disque avant
+      el.preload = this.playing ? 'auto' : 'metadata';
       el.crossOrigin = 'anonymous';
       el.muted = false;
       el.volume = 0;
@@ -476,6 +478,7 @@ export class Player extends Emitter {
         el.muted = !this.audioOn || g <= 0.0005;
         // pendant le pre-chargement on positionne mais on ne lance pas encore :
         // ainsi image et son demarrent exactement ensemble
+        if (this.playing && el.preload !== 'auto') el.preload = 'auto';
         if (this.playing && (visible || elan) && !this._priming) {
           if (el.playbackRate !== rate) el.playbackRate = rate;
           if (el.paused && e.ready) el.play().catch(() => {});
@@ -484,6 +487,12 @@ export class Player extends Emitter {
           }
         } else {
           if (!el.paused) el.pause();
+          // A l'arret, le son n'a pas a suivre la tete : chaque repositionnement
+          // ferait relire au lecteur de son des morceaux eparpilles du fichier
+          // (le son y est entrelace avec l'image) — sur un disque dur, la tete
+          // sautait sans cesse et un saut dans l'apercu prenait plusieurs
+          // secondes. Il se cale au lancement de la lecture (mise en route).
+          if (!this.playing) continue;
           if (el.readyState >= 1 && Math.abs(el.currentTime - want) > DRIFT_SEEK && !el.seeking) {
             e.seekPending = true; e.mediaTime = undefined; el.currentTime = want;
           }
@@ -645,9 +654,13 @@ export class Player extends Emitter {
         // Toutes les couches EN MEME TEMPS : chaque decodeur materiel travaille
         // de son cote. Les attendre l'une apres l'autre additionnait leurs
         // delais — sur trois couches superposees, trois fois plus d'attente.
+        let manquant = false;
         await Promise.all(actifs.map(async (a) => {
           const media = mediaOf(p, a.clip);
           if (!media || !media.hasVideo) return;
+          // Fichier introuvable : il n'arrivera pas. Le dire, plutot qu'un
+          // chargement qui tourne sans fin.
+          if (!this._lisible(media)) { manquant = true; return; }
           try {
             const st = sourceTime(a.clip, a.tLocal);
             const d = await this._entreeDe(a.clip, media, st);
@@ -689,6 +702,7 @@ export class Player extends Emitter {
         }
 
         if (attente !== this._attenteVue) { this._attenteVue = attente; this.emit('attente', attente); }
+        if (manquant !== this._manquantVu) { this._manquantVu = manquant; this.emit('manquant', manquant); }
         this.emit('rendered', frame);
         return frame;
       }
@@ -774,7 +788,7 @@ export class Player extends Emitter {
     for (const clip of aVenir) {
       if (n >= 3) break;                       // les prochains plans, toutes couches confondues
       const media = mediaOf(p, clip);
-      if (!media || !media.hasVideo || media.kind === 'image') continue;
+      if (!media || !media.hasVideo || media.kind === 'image' || !this._lisible(media)) continue;
       n++;
       const cle = clip.in + '|' + (clip.speed || 1) + '|' + media.id;
       if (this._prepares.get(clip.id) === cle) continue;
@@ -790,6 +804,28 @@ export class Player extends Emitter {
         if (got && got.owned && got.src) { try { got.src.close(); } catch (_) {} }
       })().catch(() => { this._prepares.delete(clip.id); });
     }
+  }
+
+  /** Le fichier de ce media est-il la (ou sa copie d'apercu) ? */
+  _lisible(media) {
+    return this.lib.files.has(media.id) || !!(this.lib.apercus && this.lib.apercus.has(media.id));
+  }
+
+  /**
+   * Un fichier vient d'etre retrouve : ce qu'on avait prepare sans lui ne vaut
+   * rien (decodeurs ouverts dans le vide, son absent). On repart de zero pour
+   * ce media, et l'image revient aussitot.
+   */
+  oublierMedia(mediaId) {
+    for (const [id, d] of this.decs) {
+      if (d.mediaId !== mediaId) continue;
+      this.decs.delete(id);
+      try { if (d.dec) d.dec.close(); } catch (_) {}
+    }
+    for (const [clipId, e] of this.els) if (e.mediaId === mediaId) this._dispose(clipId);
+    if (this._prepares) this._prepares.clear();
+    if (this._libsExactes) this._libsExactes.delete(mediaId);
+    this.dirty = true;
   }
 
   /** Un decodeur de cette video sera-t-il, sans saut, juste avant `entree` dans `dans` s ? */

@@ -51,10 +51,11 @@ function boite(type, ...parts) {
 
 /**
  * @param {Blob} file  video MP4 / MOV d'origine
- * @returns {Promise<Blob|null>} null si le fichier ne s'y prete pas (fragmente,
- *   sans son, structure inattendue) : l'appelant garde alors l'original.
+ * @returns {Promise<Uint8Array|null>} l'en-tete (ftyp + moov son + en-tete mdat) ;
+ *   null si le fichier ne s'y prete pas (fragmente, sans son, structure
+ *   inattendue) : l'appelant garde alors l'original.
  */
-export async function sonSeul(file) {
+async function enTeteSonSeul(file) {
   const size = file.size;
   // boites de premier niveau
   let ftyp = null, moov = null, fragmente = false;
@@ -136,6 +137,26 @@ export async function sonSeul(file) {
       dv.setBigUint64(o, dv.getBigUint64(o) + BigInt(decalage));
     }
   }
-  const morceaux = ftyp ? [ftyp, nvMoov, enTeteMdat, file] : [nvMoov, enTeteMdat, file];
-  return new Blob(morceaux, { type: 'audio/mp4' });
+  const morceaux = ftyp ? [ftyp, nvMoov, enTeteMdat] : [nvMoov, enTeteMdat];
+  const tete = new Uint8Array(morceaux.reduce((n, m) => n + m.length, 0));
+  let o = 0;
+  for (const m of morceaux) { tete.set(m, o); o += m.length; }
+  return tete;
+}
+
+/**
+ * Adresse de la piste son seule : en-tete + fichier d'origine, sans copie.
+ * Un fichier du navigateur devient un Blob compose ; un fichier lu par le
+ * serveur (a son chemin) est servi par le serveur lui-meme.
+ * @returns {Promise<string|null>}
+ */
+export async function urlSonSeul(file) {
+  const tete = await enTeteSonSeul(file);
+  if (!tete) return null;
+  if (file.distant) {
+    const r = await fetch(`/api/son?tk=${file.tk}&p=${encodeURIComponent(file.chemin)}`, { method: 'POST', body: tete });
+    const j = await r.json();
+    return j.id ? `/api/son?tk=${file.tk}&id=${j.id}` : null;
+  }
+  return URL.createObjectURL(new Blob([tete, file], { type: 'audio/mp4' }));
 }

@@ -2,6 +2,7 @@
 // avec repli sur l'element <video> pour les conteneurs non geres.
 import { once, clamp } from './util.js';
 import { blobReader } from './mp4demux.js';
+import { enBlob } from './fichierdistant.js';
 
 const BATCH = 8;
 const MAX_QUEUE = 16;
@@ -92,7 +93,7 @@ export class ClipDecoder {
       this.mode = 'image';
       const f = this.lib.file(media.id);
       // alpha NON premultiplie : indispensable pour les PNG transparents superposes
-      this.bitmap = await createImageBitmap(f, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      this.bitmap = await createImageBitmap(await enBlob(f), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
       return this;
     }
 

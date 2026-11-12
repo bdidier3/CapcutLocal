@@ -23,6 +23,7 @@ const vlc = require('./vlc');
 const dl = require('./dl');
 const proxy = require('./proxy');
 const stockage = require('./stockage');
+const localiser = require('./localiser');
 const { ouvrirCible } = require('./ouvrir');
 
 const ROOT = path.join(__dirname, '..');
@@ -123,6 +124,36 @@ function serveStatic(req, res, urlPath) {
 }
 
 // ------------------------------------------- media disque avec support Range
+
+// ------------------------------------- piste son seule, servie sans copie
+//
+// L'apercu tire son son d'une balise <audio>. Pointee sur la video, elle en
+// decoderait aussi l'image, pour rien. Le navigateur prepare donc un en-tete
+// qui ne declare que la piste son (voir app/js/sonseul.js) ; on le sert suivi
+// du fichier d'origine, lu sur place : aucun octet n'est copie sur le disque.
+const sons = new Map();   // id -> { tete: Buffer, chemin, taille }
+
+function serveSon(req, res, s) {
+  const total = s.tete.length + s.taille;
+  let debut = 0, fin = total - 1, code = 200;
+  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+  if (m) {
+    if (m[1] !== '') debut = parseInt(m[1], 10);
+    if (m[2] !== '') fin = Math.min(total - 1, parseInt(m[2], 10));
+    if (m[1] === '' && m[2] !== '') { debut = Math.max(0, total - parseInt(m[2], 10)); fin = total - 1; }
+    if (debut > fin || debut >= total) { res.writeHead(416, { 'Content-Range': `bytes */${total}` }); return res.end(); }
+    code = 206;
+  }
+  const h = { 'Content-Type': 'audio/mp4', 'Content-Length': fin - debut + 1, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
+  if (code === 206) h['Content-Range'] = `bytes ${debut}-${fin}/${total}`;
+  res.writeHead(code, h);
+  if (req.method === 'HEAD') return res.end();
+  if (debut < s.tete.length) res.write(s.tete.subarray(debut, Math.min(s.tete.length, fin + 1)));
+  if (fin >= s.tete.length) {
+    const a = Math.max(0, debut - s.tete.length), b = fin - s.tete.length;
+    fs.createReadStream(s.chemin, { start: a, end: b }).on('error', () => res.end()).pipe(res);
+  } else res.end();
+}
 
 function serveMedia(req, res, query) {
   const p = query.get('p');
@@ -330,6 +361,41 @@ const server = http.createServer(async (req, res) => {
           });
       } catch (e) { return sendJson(res, 400, { error: e.message }); }
       return sendJson(res, 200, { files: items });
+    }
+
+    // retrouver des videos sur le disque par nom + taille (voir localiser.js)
+    if (p === '/api/occupe') { localiser.signalerOccupe(); return sendJson(res, 200, { ok: true }); }
+    if (p === '/api/localiser' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
+      const voulus = (Array.isArray(body.fichiers) ? body.fichiers : []).filter((f) => f && f.name && f.size >= 0);
+      const dossiers = (Array.isArray(body.dossiers) ? body.dossiers : []).filter((d) => typeof d === 'string');
+      for (const d of dossiers) localiser.memoriser(d);
+      const trouves = await localiser.localiser(voulus, dossiers);
+      return sendJson(res, 200, { trouves });
+    }
+    // chemin de plusieurs fichiers d'un coup : existent-ils, avec la bonne taille ?
+    if (p === '/api/stats' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
+      const out = {};
+      for (const c of Array.isArray(body.chemins) ? body.chemins : []) {
+        try { const st = fs.statSync(c); out[c] = { size: st.size, mtime: st.mtimeMs }; } catch (_) { out[c] = null; }
+      }
+      return sendJson(res, 200, out);
+    }
+    if (p === '/api/son' && req.method === 'POST') {
+      const chemin = q.get('p');
+      let st;
+      try { st = fs.statSync(chemin); } catch (_) { return sendJson(res, 404, { error: 'fichier introuvable' }); }
+      const tete = await readBody(req, 64 * 1024 * 1024);
+      const id = crypto.createHash('sha1').update(chemin + '|' + st.size + '|' + tete.length).digest('hex').slice(0, 20);
+      sons.set(id, { tete, chemin, taille: st.size });
+      if (sons.size > 200) sons.delete(sons.keys().next().value);
+      return sendJson(res, 200, { id });
+    }
+    if (p === '/api/son') {
+      const s2 = sons.get(q.get('id') || '');
+      if (!s2) return sendText(res, 404, 'piste inconnue');
+      return serveSon(req, res, s2);
     }
 
     if (p === '/api/stat') {
@@ -592,6 +658,7 @@ server.on('clientError', (err, socket) => { try { socket.destroy(); } catch (_) 
 dl.detect().catch(() => {});
 // menage des sources temporaires qu'une session precedente aurait laissees
 proxy.balayer(CACHE_DIR);
+localiser.charger(CACHE_DIR);
 // Le cache ne doit jamais grossir sans fin. On le ramene sous son plafond au
 // demarrage, puis toutes les cinq minutes : pendant une longue session, les
 // copies fabriquees en cours de route sont ainsi bornees elles aussi.

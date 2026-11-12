@@ -148,7 +148,8 @@ export class Timeline {
   }
 
   fit() {
-    const d = Math.max(1, projectDuration(this.store.project));
+    // projet vide : on montre une demi-minute, pas une seconde zoomee en images
+    const d = Math.max(1, projectDuration(this.store.project) || 30);
     this.pps = clamp((this.W - 40) / d, 1.5, 900);
     this.t0 = 0;
     this.draw();
@@ -899,7 +900,7 @@ export class Timeline {
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
-        ctx.fillText(label + tag, x + 12, y + 12.5, Math.max(4, pw - 16));
+        ctx.fillText(tronquer(ctx, label + tag, Math.max(4, pw - 16)), x + 12, y + 12.5);
         if (plein <= dispo) {
           ctx.fillStyle = 'rgba(255,255,255,.62)';
           ctx.font = "11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
@@ -1072,6 +1073,29 @@ export class Timeline {
     const stripY = y + 1;
     const stripH = hgt - 2;
     if (stripH < 8) return;
+    // vignettes a l'instant exact de chaque tuile (voir lib.vignetteA)
+    {
+      const tw = Math.max(8, stripH * ((media.width || 16) / (media.height || 9)));
+      const debut = Math.max(0, Math.floor(-x / tw));
+      const fin = Math.ceil(Math.min(w, this.W - x) / tw);
+      let gere = true;
+      ctx.fillStyle = 'rgba(255,255,255,.05)';
+      ctx.fillRect(x, stripY, w, stripH);
+      for (let i = debut; i < fin; i++) {
+        const px = x + i * tw;
+        const tSrc = clip.in + ((i + 0.5) * tw / this.pps) * (clip.speed || 1);
+        // priorite : distance a la tete de lecture (ce qui est a l'ecran passe devant)
+        const tTl = clip.t0 + (i + 0.5) * tw / this.pps;
+        const bmp = this.lib.vignetteA(media.id, tSrc, this._redessiner || (this._redessiner = throttleRaf(() => this.draw())),
+          Math.abs(tTl - this.store.playhead));
+        if (bmp === undefined) { gere = false; break; }
+        if (!bmp) continue;
+        const bw = Math.min(tw, x + w - px);
+        if (bw <= 0) continue;
+        ctx.drawImage(bmp, 0, 0, bmp.width * (bw / tw), bmp.height, px, stripY, bw, stripH);
+      }
+      if (gere) return;
+    }
     const want = clamp(Math.ceil(w / 70), 1, 24);
     const entry = this.lib.requestStrip(media.id, want, () => this.draw());
     if (!entry || !entry.bitmaps.length) {
@@ -1353,6 +1377,17 @@ function drawSpeaker(ctx, cx, cy, muted) {
   }
   ctx.stroke();
   ctx.restore();
+}
+
+/** Coupe un texte trop long avec « … » (au lieu de l'ecraser en largeur). */
+function tronquer(ctx, txt, max) {
+  if (ctx.measureText(txt).width <= max) return txt;
+  let a = 0, b = txt.length;
+  while (a < b) {
+    const m = (a + b + 1) >> 1;
+    if (ctx.measureText(txt.slice(0, m) + '…').width <= max) a = m; else b = m - 1;
+  }
+  return a > 0 ? txt.slice(0, a) + '…' : '';
 }
 
 export function roundRect(ctx, x, y, w, h, r) {
