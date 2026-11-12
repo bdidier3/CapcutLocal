@@ -312,27 +312,6 @@ export function fadeGain(clip, tLocal) {
   return clamp(g, 0, 1);
 }
 
-export function audioGain(clip, tLocal) {
-  let g = clip.mute ? 0 : (clip.volume ?? 1);
-  if (clip.aFadeIn > 0 && tLocal < clip.aFadeIn) g *= tLocal / clip.aFadeIn;
-  const rem = clip.dur - tLocal;
-  if (clip.aFadeOut > 0 && rem < clip.aFadeOut) g *= Math.max(0, rem / clip.aFadeOut);
-  return clamp(g, 0, 4);
-}
-
-/** Transition sortante active : renvoie {other, f} ou null. f=0..1 progression. */
-export function transitionAt(track, clip, t) {
-  const tr = clip.transition;
-  if (!tr || tr.kind === 'none' || tr.dur <= 0) return null;
-  const i = track.clips.indexOf(clip);
-  const next = track.clips[i + 1];
-  if (!next) return null;
-  const start = clip.t0 + clip.dur - tr.dur;
-  if (t < start) return null;
-  const f = clamp((t - start) / tr.dur, 0, 1);
-  return { next, f, kind: tr.kind };
-}
-
 // ------------------------------------------------------------------- historique
 
 export class Store extends Emitter {

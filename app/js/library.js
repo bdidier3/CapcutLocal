@@ -123,22 +123,6 @@ export class Library {
   }
 
   /**
-   * Abandonne la copie d'apercu d'un media et revient au fichier d'origine.
-   *
-   * Appele quand la copie s'avere illisible — fichier efface, serveur relance,
-   * encodage rate. Sans ce repli, l'element video reste vide : l'image se fige
-   * pendant que le son, lui, continue.
-   */
-  oublierApercu(mediaId) {
-    if (!this.apercus.has(mediaId)) return false;
-    this.apercus.delete(mediaId);
-    this._blobsApercu.delete(mediaId);
-    this._mp4Apercu.delete(mediaId);
-    this.store.changed('media');
-    return true;
-  }
-
-  /**
    * Ce media a-t-il besoin d'une copie d'apercu ?
    *
    * Plus pour les MP4 / MOV : l'apercu les decode desormais en materiel via

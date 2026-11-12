@@ -171,15 +171,6 @@ export class ClipDecoder {
     return ok;
   }
 
-  _teardownCodec() {
-    for (const f of this.frames) { try { f.close(); } catch (_) {} }
-    this.frames.length = 0;
-    if (this.cur) { try { this.cur.close(); } catch (_) {} this.cur = null; }
-    if (this.dec) { try { this.dec.close(); } catch (_) {} this.dec = null; }
-    this.mp4 = null; this.track = null; this.nextIdx = 0;
-    this.inputDone = false; this.eof = false;
-  }
-
   /** Configuration commune, pour que le decodeur garde la meme apres un saut. */
   _decoderConfig() {
     const t = this.track;

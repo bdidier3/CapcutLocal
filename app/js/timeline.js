@@ -675,7 +675,7 @@ export class Timeline {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#0c0e13';
+    ctx.fillStyle = '#161618';
     ctx.fillRect(0, 0, w, h);
 
     const p = this.store.project;
@@ -685,8 +685,11 @@ export class Timeline {
     // fond des pistes
     for (let i = 0; i < p.tracks.length; i++) {
       const tr = p.tracks[i];
-      ctx.fillStyle = tr.kind === 'audio' ? '#0f1318' : '#11141a';
+      // pistes sur le fond du panneau, separees d'un filet discret
+      ctx.fillStyle = '#161618';
       ctx.fillRect(0, tops[i], w, tr.height);
+      ctx.fillStyle = 'rgba(255,255,255,.03)';
+      ctx.fillRect(0, tops[i] + tr.height - 1, w, 1);
     }
 
     this._drawGrid(ctx, w, h);
@@ -761,7 +764,7 @@ export class Timeline {
   _drawGrid(ctx, w, h) {
     const step = niceStep(70 / this.pps);
     const first = Math.floor(this.t0 / step) * step;
-    ctx.strokeStyle = 'rgba(255,255,255,.035)';
+    ctx.strokeStyle = 'rgba(255,255,255,.025)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let t = first; ; t += step) {
@@ -774,18 +777,18 @@ export class Timeline {
   }
 
   _drawRuler(ctx, w) {
-    ctx.fillStyle = '#0b0d12';
+    ctx.fillStyle = '#161618';
     ctx.fillRect(0, 0, w, RULER_H);
-    ctx.strokeStyle = '#1e242e';
+    ctx.strokeStyle = '#232327';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, RULER_H - 0.5); ctx.lineTo(w, RULER_H - 0.5); ctx.stroke();
 
     const step = niceStep(70 / this.pps);
     const sub = step / 5;
     const first = Math.floor(this.t0 / step) * step;
-    ctx.font = '10px ui-monospace, Consolas, monospace';
+    ctx.font = "11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'rgba(255,255,255,.16)';
+    ctx.strokeStyle = 'rgba(255,255,255,.14)';
     ctx.beginPath();
     for (let t = first; ; t += sub) {
       const x = Math.round(this.xOf(t)) + 0.5;
@@ -795,7 +798,7 @@ export class Timeline {
       ctx.moveTo(x, RULER_H - (major ? 8 : 4)); ctx.lineTo(x, RULER_H - 1);
     }
     ctx.stroke();
-    ctx.fillStyle = 'rgba(143,154,171,.85)';
+    ctx.fillStyle = 'rgba(160,160,170,.9)';
     for (let t = first; ; t += step) {
       const x = this.xOf(t);
       if (x > w + 40) break;
@@ -807,14 +810,14 @@ export class Timeline {
   _drawPlayhead(ctx, h) {
     const x = Math.round(this.xOf(this.store.playhead)) + 0.5;
     if (x < -2 || x > this.W + 2) return;
-    ctx.strokeStyle = '#ef5b64';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, RULER_H - 4); ctx.lineTo(x, h); ctx.stroke();
-    ctx.fillStyle = '#ef5b64';
-    roundRect(ctx, x - 6.5, 3, 13, 12, 3);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, RULER_H - 8); ctx.lineTo(x, h); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    roundRect(ctx, x - 5, RULER_H - 15, 10, 11, 3);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(x - 4, 15); ctx.lineTo(x + 4, 15); ctx.lineTo(x, 20); ctx.closePath();
+    ctx.moveTo(x - 5, RULER_H - 6); ctx.lineTo(x + 5, RULER_H - 6); ctx.lineTo(x, RULER_H - 1); ctx.closePath();
     ctx.fill();
   }
 
@@ -832,12 +835,12 @@ export class Timeline {
     this.hit.push(rec);
 
     ctx.save();
-    roundRect(ctx, x, y, w, hgt, 5);
+    roundRect(ctx, x, y + 1, w, hgt - 2, 7);
     ctx.clip();
 
     // fond (aplats sobres, sans degrade)
     const isAudio = track.kind === 'audio' || clip.kind === 'audio';
-    ctx.fillStyle = clip.kind === 'text' ? '#2c2740' : isAudio ? '#16302b' : '#1d2634';
+    ctx.fillStyle = clip.kind === 'text' ? '#3b3170' : isAudio ? '#1d7a45' : '#26262b';
     ctx.fillRect(x, y, w, hgt);
 
     // pellicule
@@ -874,10 +877,6 @@ export class Timeline {
     // bandeau de titre
     const label = clip.kind === 'text' ? (clip.text.content || 'Texte').slice(0, 40)
       : media ? media.name : clip.kind;
-    ctx.fillStyle = 'rgba(6,8,12,.55)';
-    ctx.fillRect(x, y, w, 15);
-    ctx.fillStyle = selected ? '#ffffff' : 'rgba(228,232,239,.82)';
-    ctx.font = '500 10.5px Inter, Segoe UI, sans-serif';
     ctx.textBaseline = 'middle';
     let tag = '';
     if (clip.masks && clip.masks.length) tag += '  ◍' + clip.masks.length;
@@ -885,7 +884,29 @@ export class Timeline {
     // place reservee a droite pour la pastille de son
     const hasSound = clip.kind !== 'text' && media && media.hasAudio;
     const reserve = hasSound && w > 46 ? 20 : 0;
-    ctx.fillText(label + tag, x + 6, y + 7.5, Math.max(4, w - 10 - reserve));
+    {
+      const dureeTxt = clip.dur >= 60 ? fmtTime(clip.dur, 0) : clip.dur.toFixed(1).replace('.', ',') + ' s';
+      ctx.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
+      const nomW = ctx.measureText(label + tag).width;
+      ctx.font = "11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
+      const durW = ctx.measureText(dureeTxt).width;
+      const dispo = Math.max(0, w - 12 - reserve);
+      const plein = 8 + nomW + 7 + durW + 8;
+      const pw = Math.min(dispo, plein);
+      if (pw > 14) {
+        ctx.fillStyle = 'rgba(0,0,0,.55)';
+        roundRect(ctx, x + 4, y + 4, pw, 17, 5);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = "600 11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
+        ctx.fillText(label + tag, x + 12, y + 12.5, Math.max(4, pw - 16));
+        if (plein <= dispo) {
+          ctx.fillStyle = 'rgba(255,255,255,.62)';
+          ctx.font = "11px 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif";
+          ctx.fillText(dureeTxt, x + 12 + nomW + 7, y + 12.5);
+        }
+      }
+    }
 
     ctx.restore();
 
@@ -898,19 +919,19 @@ export class Timeline {
       const fo = Math.min(clip.fadeOut * this.pps, w * 0.9);
       for (const [side, hx] of [['in', x + fi], ['out', x + w - fo]]) {
         ctx.beginPath();
-        ctx.arc(hx, y + 20, 4.5, 0, Math.PI * 2);
+        ctx.arc(hx, y + hgt - 11, 4.5, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.strokeStyle = 'rgba(8,10,14,.8)';
         ctx.lineWidth = 1.2;
         ctx.stroke();
-        this.hit.push({ clip, track, ti, x: hx - 7, y: y + 13, w: 14, h: 14, isFade: side });
+        this.hit.push({ clip, track, ti, x: hx - 7, y: y + hgt - 18, w: 14, h: 14, isFade: side });
       }
     }
 
     // pastille haut-parleur cliquable
     if (reserve) {
-      const bx = x + w - 17, by = y + 1.5;
+      const bx = x + w - 21, by = y + 5;
       ctx.fillStyle = clip.mute ? 'rgba(239,91,100,.92)' : 'rgba(255,255,255,.14)';
       roundRect(ctx, bx, by, 15, 13, 3.5);
       ctx.fill();
@@ -920,18 +941,14 @@ export class Timeline {
 
     // contour
     if (selected) {
-      ctx.strokeStyle = '#6b91ff';
-      ctx.lineWidth = 1.5;
-      roundRect(ctx, x + 0.75, y + 0.75, w - 1.5, hgt - 1.5, 5);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(79,124,255,.28)';
-      ctx.lineWidth = 3;
-      roundRect(ctx, x - 1, y - 1, w + 2, hgt + 2, 6.5);
+      ctx.strokeStyle = '#2a7fff';
+      ctx.lineWidth = 2.5;
+      roundRect(ctx, x + 1.25, y + 2.25, w - 2.5, hgt - 4.5, 6);
       ctx.stroke();
     } else {
-      ctx.strokeStyle = 'rgba(0,0,0,.5)';
+      ctx.strokeStyle = 'rgba(0,0,0,.45)';
       ctx.lineWidth = 1;
-      roundRect(ctx, x + 0.5, y + 0.5, w - 1, hgt - 1, 5);
+      roundRect(ctx, x + 0.5, y + 1.5, w - 1, hgt - 3, 7);
       ctx.stroke();
     }
 
@@ -1041,18 +1058,19 @@ export class Timeline {
     for (const e of show) {
       bx -= BW + GAP;
       ctx.fillStyle = 'rgba(79,124,255,.32)';
-      roundRect(ctx, bx, y + 2, BW, 11, 3);
+      roundRect(ctx, bx, y + 6, BW, 13, 3);
       ctx.fill();
       ctx.fillStyle = '#dbe6ff';
-      ctx.fillText(e.glyph, bx + BW / 2, y + 8);
-      this.hit.push({ clip, track, ti, x: bx - 1, y: y + 1, w: BW + 2, h: 13, isBadge: e.kind, badgeLabel: e.label });
+      ctx.fillText(e.glyph, bx + BW / 2, y + 12.5);
+      this.hit.push({ clip, track, ti, x: bx - 1, y: y + 5, w: BW + 2, h: 15, isBadge: e.kind, badgeLabel: e.label });
     }
     ctx.restore();
   }
 
   _drawStrip(ctx, clip, media, x, y, w, hgt) {
-    const stripY = y + 15;
-    const stripH = hgt - 15;
+    // la pellicule occupe tout le clip ; l'etiquette flotte par-dessus
+    const stripY = y + 1;
+    const stripH = hgt - 2;
     if (stripH < 8) return;
     const want = clamp(Math.ceil(w / 70), 1, 24);
     const entry = this.lib.requestStrip(media.id, want, () => this.draw());
@@ -1081,14 +1099,14 @@ export class Timeline {
 
   _drawWave(ctx, clip, media, x, y, w, hgt) {
     const env = this.lib.waves.get(media.id);
-    const top = y + 15, hh = hgt - 17;
+    const top = y + 22, hh = hgt - 25;
     if (!env) {
       if (!this.lib.waves.has(media.id)) this.lib.waveform(media.id).then(() => this.draw());
       ctx.strokeStyle = 'rgba(255,255,255,.25)';
       ctx.beginPath(); ctx.moveTo(x + 2, top + hh / 2); ctx.lineTo(x + w - 2, top + hh / 2); ctx.stroke();
       return;
     }
-    ctx.fillStyle = 'rgba(120,226,190,.6)';
+    ctx.fillStyle = 'rgba(150,240,180,.85)';
     const srcDur = media.duration || 1;
     const step = Math.max(1, Math.round(1));
     for (let px = 0; px < w; px += step) {

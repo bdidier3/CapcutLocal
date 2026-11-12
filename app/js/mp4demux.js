@@ -63,24 +63,6 @@ export function blobReader(blob) {
   };
 }
 
-/** Lecteur d'octets via HTTP Range (fichier servi par le serveur local). */
-export function urlReader(url) {
-  let size = -1;
-  return {
-    get size() { return size; },
-    async init() {
-      const r = await fetch(url, { method: 'HEAD' });
-      size = Number(r.headers.get('content-length') || 0);
-      return size;
-    },
-    async read(start, end) {
-      const r = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
-      if (!r.ok && r.status !== 206) throw new Error('range HTTP ' + r.status);
-      return new Uint8Array(await r.arrayBuffer());
-    },
-  };
-}
-
 // --------------------------------------------------------------- lecture boites
 
 class Cursor {

@@ -28,14 +28,6 @@ export function overlapFadeOut(track, clip, t) {
   return clamp(1 - (t - start) / ov, 0, 1);
 }
 
-/** Duree de recouvrement (transition) entre un clip et le suivant. */
-export function overlapWithNext(track, clip) {
-  const i = track.clips.indexOf(clip);
-  const next = track.clips[i + 1];
-  if (!next) return 0;
-  return Math.max(0, (clip.t0 + clip.dur) - next.t0);
-}
-
 // ------------------------------------------------------------------- texte 2D
 
 const textCache = new Map();

@@ -75,7 +75,7 @@ if (typeof VideoEncoder === 'undefined') {
 // ---------------------------------------------- panneaux redimensionnables
 
 // bornes volontairement larges : on peut presque replier chaque zone
-const LIMITS = { left: [120, 620], right: [150, 680], tl: [44, 900] };
+const LIMITS = { left: [200, 620], right: [150, 680], tl: [44, 900] };
 const CSSVAR = { left: '--left-w', right: '--right-w', tl: '--tl-h' };
 const MIN_VIEWER = 150;   // hauteur mini de la zone apercu + transport
 const MIN_CENTER = 240;   // largeur mini de la colonne centrale
@@ -89,11 +89,11 @@ function limitsFor(k) {
   const [lo, hi] = LIMITS[k];
   if (k === 'tl') {
     // la timeline ne doit jamais ecraser l'apercu
-    const avail = window.innerHeight - 46 - 8 - 36 - MIN_VIEWER;
+    const avail = window.innerHeight - 56 - 10 - 44 - 10 - MIN_VIEWER;
     return [lo, clamp(Math.min(hi, avail), lo, hi)];
   }
   const other = k === 'left' ? getPanel('right') : getPanel('left');
-  const avail = window.innerWidth - 60 - other - 12 - MIN_CENTER;
+  const avail = window.innerWidth - 20 - other - 20 - MIN_CENTER;
   return [lo, clamp(Math.min(hi, avail), lo, hi)];
 }
 
@@ -140,7 +140,7 @@ function initSplitters() {
     // double-clic : ajuster au contenu (timeline) ou revenir au defaut (panneaux)
     sp.addEventListener('dblclick', () => {
       if (key === 'tl') setPanel('tl', timeline.contentHeight() + 6);
-      else setPanel(key, { left: 262, right: 308 }[key]);
+      else setPanel(key, { left: 300, right: 320 }[key]);
       saveLayout(); layoutStage(); timeline.draw();
     });
   }
@@ -164,15 +164,38 @@ function layoutStage() {
 }
 new ResizeObserver(layoutStage).observe(viewer);
 
+/** Format lisible : « 9:16 » plutot que « 1080×1920 », la definition en infobulle. */
+function ratioDe(w, h) {
+  const pgcd = (a, b) => (b ? pgcd(b, a % b) : a);
+  const g = pgcd(Math.round(w), Math.round(h)) || 1;
+  const a = Math.round(w / g), b = Math.round(h / g);
+  if (a <= 32 && b <= 32) return `${a}:${b}`;
+  const r = w / h;                                   // definitions non standard
+  for (const [x, y] of [[16, 9], [9, 16], [1, 1], [4, 3], [3, 4], [4, 5], [21, 9]]) {
+    if (Math.abs(r - x / y) < 0.02) return `${x}:${y}`;
+  }
+  return `${Math.round(w)}×${Math.round(h)}`;
+}
+
 function refreshHeader() {
   const p = store.project;
-  $('#projFmt').textContent = `${p.width}×${p.height} · ${p.fps}`;
+  $('#projFmt').textContent = ratioDe(p.width, p.height);
+  $('#btnFmt').title = `Format du projet : ${p.width}×${p.height}, ${p.fps} i/s — cliquer pour le changer`;
   $('#projName').value = p.name;
   $('#tcTot').textContent = fmtTime(projectDuration(p), p.fps);
   $('#viewerEmpty').classList.toggle('hidden', p.media.length > 0);
 }
 
-store.on('change', () => { refreshHeader(); renderBin(); scheduleAutosave(); prechauffe.demander(); });
+store.on('change', () => { refreshHeader(); renderBin(); scheduleAutosave(); prechauffe.demander(); etatEnregistrement(false); });
+
+/** Pastille « Enregistre » / « Modifie » de la barre du haut. */
+function etatEnregistrement(ok) {
+  const b = $('#btnSave');
+  if (!b) return;
+  b.classList.toggle('dirty', !ok);
+  $('#saveState').textContent = ok ? 'Enregistre' : 'Modifie';
+}
+$('#btnFmt').onclick = () => $('#btnSettings').click();
 // tete deplacee a la main : on prechauffe d'abord autour de sa nouvelle position
 store.on('seek', () => { if (!player.playing) prechauffe.demander(); });
 store.on('seek', () => { $('#tcCur').textContent = fmtTime(store.playhead, store.project.fps); });
@@ -319,6 +342,8 @@ function updateBinCount() {
   const b = $('#btnAddSel');
   b.lastChild.textContent = n > 1 ? `Ajouter ${n} medias a la timeline`
     : n === 1 ? 'Ajouter a la timeline' : 'Ajouter tout a la timeline';
+  // rien a ajouter tant que la bibliotheque est vide
+  b.parentElement.classList.toggle('hidden', !store.project.media.length);
   const badge = $('#binSelInfo');
   if (badge) {
     badge.textContent = n ? `${n} selectionne${n > 1 ? 's' : ''} · Suppr pour supprimer` : '';
@@ -750,11 +775,15 @@ function renderBin() {
   host.innerHTML = '';
   const kinds = binFilter === 'all' ? ['video', 'audio', 'image'] : [binFilter];
   const list = p.media.filter((m) => match(m, kinds));
-  host.append(el('button', {
-    type: 'button', class: 'dropzone', id: 'dropzone',
-    onclick: pickFiles,
-  }, icon('upload', 'i xl'), el('b', { text: 'Glissez vos fichiers ici' }),
-    el('span', { text: 'videos, audio, images' })));
+  // la grande zone de depot n'a de sens que tant que la bibliotheque est vide :
+  // ensuite, glisser un fichier n'importe ou dans la fenetre suffit
+  if (!p.media.length) {
+    host.append(el('button', {
+      type: 'button', class: 'dropzone', id: 'dropzone',
+      onclick: pickFiles,
+    }, icon('upload', 'i xl'), el('b', { text: 'Glissez vos fichiers ici' }),
+      el('span', { text: 'videos, audio, images' })));
+  }
   if (!list.length && p.media.length) {
     host.append(el('div', { class: 'bin-empty', text: 'Aucun resultat' }));
   }
@@ -1948,7 +1977,8 @@ $('#stStockNettoyer').onclick = nettoyerStockage;
 function majChiffreStock(octets) {
   const e = $('#stockChiffre');
   if (!e) return;
-  e.textContent = fmtSize(octets);
+  // en dessous d'un Mo, le chiffre n'apprend rien : l'icone suffit
+  e.textContent = octets >= 1024 * 1024 ? fmtSize(octets) : '';
   $('#btnStock').classList.toggle('gros', octets > 512 * 1024 * 1024);
 }
 
@@ -2402,6 +2432,7 @@ async function saveProject(silent) {
       savedAt: Date.now(),
       createdAt: (prev && prev.createdAt) || Date.now(),
     });
+    etatEnregistrement(true);
     if (!silent) toast('Projet enregistre', 'ok');
   } catch (e) {
     if (!silent) toast('Enregistrement impossible : ' + e.message, 'error');

@@ -42,25 +42,7 @@ ne sont jamais touchées).
 
 ### Windows
 
-Double-cliquez sur **`Installer.bat`**, une seule fois.
-
-Il installe ce qui manque, et rien d'autre — il ne désinstalle jamais rien et ne
-touche à aucun réglage du système. Tout passe par **winget**, le gestionnaire de
-paquets fourni avec Windows : les programmes viennent donc de leurs éditeurs
-officiels et se mettront à jour avec le reste du système.
-
-| Outil | À quoi il sert | Sans lui |
-|---|---|---|
-| **Node.js** 20+ | fait tourner CutLocal | rien ne démarre |
-| **ffmpeg** | copies d'aperçu, vignettes, recollage image + son | l'aperçu rame sur les rushes 4K, certains téléchargements échouent |
-| **yt-dlp** | importer depuis un lien | le bouton « Télécharger » ne fonctionne pas |
-
-Le script vérifie ensuite que chaque outil **démarre vraiment**, et pas seulement
-qu'il est présent : sur Windows 11, le « Contrôle d'application intelligent »
-peut laisser un programme installé tout en refusant de l'exécuter.
-
-Si un outil vient d'être installé, il peut rester invisible dans la fenêtre en
-cours : fermez-la, rouvrez-en une, relancez le script.
+Utilisez **`CutLocal.bat`** (voir ci-dessus) : il installe et lance tout seul.
 
 ### Linux (Kali, Debian, Ubuntu…)
 
@@ -98,7 +80,7 @@ correspondant à votre gestionnaire de paquets, plutôt qu'une commande qui
 
 ## Démarrer
 
-Double-cliquez sur **`Lancer CutLocal.bat`**.
+Windows : double-cliquez sur **`CutLocal.bat`**. Linux : `./lancer.sh`.
 
 Le navigateur s'ouvre sur l'éditeur. Laissez la fenêtre noire ouverte pendant le montage.
 
@@ -205,9 +187,23 @@ premier entrait : les données d'un dépôt expirent dès la première attente).
 
 ## L'interface
 
-Une barre d'icônes à gauche donne accès aux rubriques : **Médias** (vidéos, audio,
-images), **Son**, **Texte**, **Masques**, **Transitions**. Presque tous les boutons
-sont des icônes — survolez-les pour la légende et le raccourci.
+Quatre zones, comme dans les éditeurs modernes :
+
+- **en haut** : « Projets » à gauche, le nom du projet et son état d'enregistrement
+  au centre (cliquer dessus enregistre tout de suite), la place disque, les réglages
+  et **Exporter** à droite ;
+- **à gauche** : les rubriques **Médias**, **Son**, **Texte**, **Masques**,
+  **Transitions**, **Outils**, puis l'import (fichiers, ou lien TikTok / Instagram /
+  YouTube) et la bibliothèque ;
+- **au centre** : l'aperçu, avec sa barre de lecture flottante (temps, image par
+  image, lecture, son, boucle, repères de cadrage, format du projet, qualité
+  d'aperçu, plein écran) ;
+- **à droite** : les propriétés du clip sélectionné ;
+- **en bas** : la timeline et ses outils (annuler, couper, supprimer, dupliquer,
+  son, flou de visage, masque, superposition, transition, aimant, zoom).
+
+Survolez un bouton pour sa légende et son raccourci. Les réglages fins de l'export
+(codec, débit, audio, image clé, étendue) sont repliés sous « Options avancées ».
 
 **Tout est redimensionnable à la souris** : glissez la séparation entre deux zones
 (médias / aperçu / propriétés, et la barre grise au-dessus de la timeline).
@@ -977,14 +973,6 @@ Trois chemins, essayés dans l'ordre : **WebCodecs** (AAC, Opus), puis
 recours accepte tout ce que l'aperçu sait jouer — y compris les `.MOV` dont le son
 n'est ni AAC ni Opus, qui sortaient jusqu'ici muets.
 
-### Analyser une vidéo qui ralentit l'export
-
-Ouvrez **`diagnostic.html`** (même adresse que l'éditeur, en remplaçant la fin par
-`/diagnostic.html`) puis **« Analyser MA vidéo »** et choisissez le fichier. Le rapport
-donne le débit du disque qui l'héberge, le conteneur, le codec, l'écart entre images
-clés, si WebCodecs sait la décoder, le débit de décodage réel, le nombre de
-repositionnements par image — et un verdict en une ligne.
-
 Si une source n'est pas lisible en accélération matérielle, l'éditeur retombe sur un
 décodage par `seek`, bien plus lent — il le **dit** dans la fenêtre de progression au
 lieu de laisser croire à un plantage. Et si plus rien n'avance pendant 30 secondes,
@@ -1076,7 +1064,6 @@ réimportez le fichier au même nom.
 
 ## Vérifier l'installation
 
-- `http://127.0.0.1:4676/diagnostic.html?tk=…` — capacités GPU / codecs de votre machine
 - `http://127.0.0.1:4676/selftest.html?tk=…` — 34 tests automatiques du moteur
   (muxage, démuxage, décodage exact, masques, mixage audio, export 4K)
 

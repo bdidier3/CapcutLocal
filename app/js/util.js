@@ -25,11 +25,6 @@ export function fmtSize(b) {
   return (b / 1073741824).toFixed(2) + ' Go';
 }
 
-export function fmtBitrate(bps) {
-  if (bps >= 1e6) return (bps / 1e6).toFixed(bps >= 1e7 ? 0 : 1) + ' Mb/s';
-  return (bps / 1e3).toFixed(0) + ' kb/s';
-}
-
 /** Cree un element avec classes/attributs/enfants. */
 export function el(tag, props = {}, ...children) {
   const n = document.createElement(tag);
@@ -164,12 +159,6 @@ export function yieldTask() {
     _mc.port1.start();
   }
   return new Promise((res) => { _mc.waiting.push(res); _mc.port2.postMessage(0); });
-}
-
-/** Attend `ms` sans bridage d'onglet (boucle de micro-taches + horloge). */
-export async function yieldFor(ms) {
-  const end = performance.now() + ms;
-  do { await yieldTask(); } while (performance.now() < end);
 }
 
 export const isMac = navigator.platform.toLowerCase().includes('mac');

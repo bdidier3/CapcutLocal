@@ -17,7 +17,7 @@
   <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6.5V5h16v1.5M12 5v14M9 19h6"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M4 9h11a5 5 0 0 1 0 10h-6M4 9l4-4M4 9l4 4"/></symbol>
   <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 9H9a5 5 0 0 0 0 10h6M20 9l-4-4M20 9l-4 4"/></symbol>
-  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.5 7.5l2 1.2M17.5 15.3l2 1.2M4.5 16.5l2-1.2M17.5 8.7l2-1.2"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7V4M8 20v-5h8v5"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h6l2 2.5h10V19H3z"/></symbol>
   <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v11M8 10.5l4 3.5 4-3.5M4 17v3h16v-3"/></symbol>
@@ -93,72 +93,55 @@
 
 <!-- --------------------------------------------------------------- barre haute -->
 <header class="topbar">
-  <span class="logo"><svg class="i solid"><use href="#i-play"/></svg></span>
-  <input id="projName" class="projname" value="Projet sans titre" spellcheck="false" aria-label="Nom du projet">
-
-  <span class="vsep"></span>
-  <button id="btnUndo" class="btn icon" title="Annuler — Ctrl+Z"><svg class="i"><use href="#i-undo"/></svg></button>
-  <button id="btnRedo" class="btn icon" title="Refaire — Ctrl+Y"><svg class="i"><use href="#i-redo"/></svg></button>
-
-  <div class="spacer"></div>
-
-  <div class="tb-dl">
-    <button id="btnDlVideo" class="btn dl" title="Coller un lien TikTok / Instagram / YouTube et importer la VIDEO">
-      <svg class="i sm"><use href="#i-link"/></svg>Telecharger video
-    </button>
-    <button id="btnDlAudio" class="btn dl" title="Coller un lien TikTok / Instagram / YouTube et importer seulement le SON">
-      <svg class="i sm"><use href="#i-music"/></svg>Telecharger son
-    </button>
+  <div class="tb-side">
+    <button id="btnHome" class="pill" title="Mes projets"><svg class="i sm"><use href="#i-folder"/></svg>Projets</button>
   </div>
-
-  <div class="spacer"></div>
-  <span id="stats" class="stat"></span>
-  <span id="prechauffe" class="stat hidden" title="Lecture d'avance des passages utilises, pour un apercu fluide. Rien n'est copie sur le disque : se met en pause pendant la lecture."></span>
-  <button id="btnStock" class="chip" title="Place occupee sur le disque — liberer">
-    <svg class="i sm"><use href="#i-trash"/></svg><span id="stockChiffre">—</span>
-  </button>
-  <button id="btnSettings" class="chip" title="Reglages du projet">
-    <span id="projFmt">1920×1080 · 30</span><svg class="i sm"><use href="#i-settings"/></svg>
-  </button>
-  <span class="vsep"></span>
-  <button id="btnHome" class="btn icon" title="Mes projets"><svg class="i"><use href="#i-home"/></svg></button>
-  <button id="btnSave" class="btn icon" title="Enregistrer — Ctrl+S"><svg class="i"><use href="#i-save"/></svg></button>
-  <button id="btnExport" class="btn primary" title="Exporter — Ctrl+E"><svg class="i"><use href="#i-export"/></svg>Exporter</button>
+  <div class="tb-center">
+    <input id="projName" class="projname" value="Projet sans titre" spellcheck="false" aria-label="Nom du projet">
+    <button id="btnSave" class="savestate" title="Enregistrer maintenant — Ctrl+S"><span class="dot"></span><span id="saveState">Enregistre</span></button>
+    <span id="prechauffe" class="stat hidden" title="Lecture d'avance des passages utilises, pour un apercu fluide. Rien n'est copie sur le disque : se met en pause pendant la lecture."></span>
+    <span id="stats" class="stat hidden"></span>
+  </div>
+  <div class="tb-side right">
+    <button id="btnStock" class="pill quiet" title="Place occupee sur le disque — liberer"><svg class="i sm"><use href="#i-trash"/></svg><span id="stockChiffre">—</span></button>
+    <button id="btnSettings" class="btn icon ghost" title="Reglages du projet"><svg class="i"><use href="#i-settings"/></svg></button>
+    <button id="btnExport" class="btn primary" title="Exporter — Ctrl+E"><svg class="i sm"><use href="#i-export"/></svg>Exporter</button>
+  </div>
 </header>
 
 <main class="workspace">
-  <!-- ------------------------------------------------------ rail de rubriques -->
-  <nav class="rail" id="rail">
-    <button class="rail-btn on" data-tab="media" title="Videos, images et audio"><svg class="i"><use href="#i-film"/></svg><span>Medias</span></button>
-    <button class="rail-btn" data-tab="audio" title="Pistes audio"><svg class="i"><use href="#i-music"/></svg><span>Son</span></button>
-    <button class="rail-btn" data-tab="text" title="Ajouter du texte"><svg class="i"><use href="#i-text"/></svg><span>Texte</span></button>
-    <button class="rail-btn" data-tab="mask" title="Masques et flou"><svg class="i"><use href="#i-mask"/></svg><span>Masques</span></button>
-    <button class="rail-btn" data-tab="trans" title="Transitions"><svg class="i"><use href="#i-transition"/></svg><span>Transit.</span></button>
-    <button class="rail-btn" data-tab="tools" title="Inverser, figer, couper, miroir..."><svg class="i"><use href="#i-tools"/></svg><span>Outils</span></button>
-  </nav>
-
   <!-- ------------------------------------------------------------- panneau gauche -->
   <aside class="panel left">
-    <div class="panel-top">
-      <button id="btnImport" class="btn primary sm grow" title="Importer des fichiers — Ctrl+I"><svg class="i sm"><use href="#i-plus"/></svg>Importer</button>
-      <label class="search" title="Filtrer par nom">
-        <svg class="i sm"><use href="#i-search"/></svg>
-        <input id="mSearch" type="search" placeholder="Rechercher" spellcheck="false">
-      </label>
-    </div>
+    <nav class="tabs" id="rail">
+      <button class="rail-btn on" data-tab="media" title="Videos, images et audio"><svg class="i"><use href="#i-film"/></svg><span>Medias</span></button>
+      <button class="rail-btn" data-tab="audio" title="Pistes audio"><svg class="i"><use href="#i-music"/></svg><span>Son</span></button>
+      <button class="rail-btn" data-tab="text" title="Ajouter du texte"><svg class="i"><use href="#i-text"/></svg><span>Texte</span></button>
+      <button class="rail-btn" data-tab="mask" title="Masques et flou"><svg class="i"><use href="#i-mask"/></svg><span>Masques</span></button>
+      <button class="rail-btn" data-tab="trans" title="Transitions"><svg class="i"><use href="#i-transition"/></svg><span>Transitions</span></button>
+      <button class="rail-btn" data-tab="tools" title="Inverser, figer, couper, miroir..."><svg class="i"><use href="#i-tools"/></svg><span>Outils</span></button>
+    </nav>
 
     <!-- rubrique MEDIAS -->
     <div class="tabpane on" data-pane="media">
+      <div class="panel-top">
+        <button id="btnImport" class="btn soft grow" title="Importer des fichiers — Ctrl+I"><svg class="i sm"><use href="#i-plus"/></svg>Importer</button>
+        <button id="btnDlVideo" class="btn soft icon" title="Importer une video depuis un lien (TikTok, Instagram, YouTube...)"><svg class="i"><use href="#i-link"/></svg></button>
+        <button id="btnDlAudio" class="btn soft icon" title="Importer seulement le son depuis un lien"><svg class="i"><use href="#i-music"/></svg></button>
+      </div>
       <div class="chips" id="mFilters">
         <button class="chip-f on" data-f="all" title="Tout">Tout <b id="cAll"></b></button>
         <button class="chip-f" data-f="video" title="Videos"><svg class="i sm"><use href="#i-film"/></svg><b id="cVid"></b></button>
         <button class="chip-f" data-f="audio" title="Audio"><svg class="i sm"><use href="#i-music"/></svg><b id="cAud"></b></button>
         <button class="chip-f" data-f="image" title="Images"><svg class="i sm"><use href="#i-image"/></svg><b id="cImg"></b></button>
+        <label class="search" title="Filtrer par nom">
+          <svg class="i sm"><use href="#i-search"/></svg>
+          <input id="mSearch" type="search" placeholder="Rechercher" spellcheck="false">
+        </label>
       </div>
       <div id="bin" class="bin"></div>
       <div class="panel-foot">
         <div id="binSelInfo" class="bin-selinfo hidden"></div>
-        <button id="btnAddSel" class="btn wide sm" title="Ajouter les medias selectionnes a la fin de la timeline"><svg class="i sm"><use href="#i-plus"/></svg><span>Ajouter a la timeline</span></button>
+        <button id="btnAddSel" class="btn soft wide sm" title="Ajouter les medias selectionnes a la fin de la timeline"><svg class="i sm"><use href="#i-plus"/></svg><span>Ajouter a la timeline</span></button>
       </div>
     </div>
 
@@ -166,7 +149,7 @@
     <div class="tabpane" data-pane="audio">
       <div id="binAudio" class="bin"></div>
       <div class="panel-foot">
-        <button id="btnImportAudio" class="btn wide sm"><svg class="i sm"><use href="#i-music"/></svg>Importer de la musique</button>
+        <button id="btnImportAudio" class="btn soft wide sm"><svg class="i sm"><use href="#i-music"/></svg>Importer de la musique</button>
       </div>
     </div>
 
@@ -190,7 +173,7 @@
     </div>
   </aside>
 
-  <div class="split-v" data-split="left" title="Glisser pour redimensionner"></div>
+<div class="split-v" data-split="left" title="Glisser pour redimensionner"></div>
 
   <!-- ------------------------------------------------------------ visionneuse -->
   <section class="center">
@@ -211,31 +194,27 @@
     </div>
 
     <div class="transport">
-      <span id="tcCur" class="tc">00:00:00</span>
-      <span class="tc sep">/</span>
-      <span id="tcTot" class="tc muted">00:00:00</span>
-
-      <div class="t-mid">
-        <button id="btnStart" class="btn icon ghost" title="Debut — Origine"><svg class="i"><use href="#i-start"/></svg></button>
-        <button id="btnPrevF" class="btn icon ghost" title="Image precedente — ←"><svg class="i"><use href="#i-prev"/></svg></button>
-        <button id="btnPlay" class="btn play" title="Lecture / Pause — Espace"><svg class="i"><use href="#i-play"/></svg></button>
-        <button id="btnNextF" class="btn icon ghost" title="Image suivante — →"><svg class="i"><use href="#i-next"/></svg></button>
-        <button id="btnEnd" class="btn icon ghost" title="Fin — Fin"><svg class="i"><use href="#i-end"/></svg></button>
-        <button id="btnLoop" class="btn icon ghost" title="Boucle — L"><svg class="i"><use href="#i-loop"/></svg></button>
-      </div>
-
-      <div class="t-right">
-        <button id="btnMute" class="btn icon ghost" title="Son de l'apercu"><svg class="i"><use href="#i-vol"/></svg></button>
-        <button id="btnSafe" class="btn icon ghost" title="Reperes de cadrage"><svg class="i"><use href="#i-safe"/></svg></button>
-        <button id="btnFull" class="btn icon ghost" title="Plein ecran — Maj+F (Echap pour sortir)"><svg class="i"><use href="#i-expand"/></svg></button>
-        <select id="quality" title="Qualite de l'apercu (n'affecte pas l'export)">
-          <option value="auto">Auto</option>
-          <option value="1">100 %</option>
-          <option value="0.6666">66 %</option>
-          <option value="0.5">50 %</option>
-          <option value="0.25">25 %</option>
-        </select>
-      </div>
+      <span class="tcs"><span id="tcCur" class="tc">00:00:00</span><span class="tc sep">/</span><span id="tcTot" class="tc muted">00:00:00</span></span>
+      <span class="tp-sep"></span>
+      <!-- debut / fin : touches Origine et Fin -->
+      <button id="btnStart" class="btn icon ghost hidden" title="Debut — Origine"><svg class="i"><use href="#i-start"/></svg></button>
+      <button id="btnPrevF" class="btn icon ghost" title="Image precedente — fleche gauche (Maj : 1 s)"><svg class="i"><use href="#i-prev"/></svg></button>
+      <button id="btnPlay" class="btn play" title="Lecture / Pause — Espace"><svg class="i"><use href="#i-play"/></svg></button>
+      <button id="btnNextF" class="btn icon ghost" title="Image suivante — fleche droite (Maj : 1 s)"><svg class="i"><use href="#i-next"/></svg></button>
+      <button id="btnEnd" class="btn icon ghost hidden" title="Fin — Fin"><svg class="i"><use href="#i-end"/></svg></button>
+      <span class="tp-sep"></span>
+      <button id="btnMute" class="btn icon ghost" title="Son de l'apercu"><svg class="i"><use href="#i-vol"/></svg></button>
+      <button id="btnLoop" class="btn icon ghost" title="Boucle — L"><svg class="i"><use href="#i-loop"/></svg></button>
+      <button id="btnSafe" class="btn icon ghost" title="Reperes de cadrage"><svg class="i"><use href="#i-safe"/></svg></button>
+      <button id="btnFmt" class="tp-chip" title="Format du projet — cliquer pour le changer"><svg class="i sm"><use href="#i-rect"/></svg><span id="projFmt">16:9</span></button>
+      <select id="quality" title="Qualite de l'apercu (n'affecte pas l'export)">
+        <option value="auto">Auto</option>
+        <option value="1">100 %</option>
+        <option value="0.6666">66 %</option>
+        <option value="0.5">50 %</option>
+        <option value="0.25">25 %</option>
+      </select>
+      <button id="btnFull" class="btn icon ghost" title="Plein ecran — Maj+F (Echap pour sortir)"><svg class="i"><use href="#i-expand"/></svg></button>
     </div>
   </section>
 
@@ -248,29 +227,32 @@
 
 <!-- --------------------------------------------------------------- timeline -->
 <div class="tl-toolbar">
-  <button id="tlSplit" class="btn icon sm" title="Couper au curseur — S&#10;Un clip selectionne : on ne coupe que celui-la (Ctrl+clic pour en ajouter).&#10;Rien de selectionne : on coupe toutes les pistes."><svg class="i sm"><use href="#i-cut"/></svg></button>
-  <button id="tlCutL" class="btn icon sm" title="Couper la partie gauche — Q&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-left"/></svg></button>
-  <button id="tlCutR" class="btn icon sm" title="Couper la partie droite — W&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-right"/></svg></button>
-  <button id="tlDel" class="btn icon sm" title="Supprimer — Suppr"><svg class="i sm"><use href="#i-trash"/></svg></button>
-  <button id="tlRipple" class="btn icon sm" title="Supprimer et combler le trou — Maj+Suppr"><svg class="i sm"><use href="#i-ripple"/></svg></button>
-  <button id="tlDup" class="btn icon sm" title="Dupliquer — Ctrl+D"><svg class="i sm"><use href="#i-copy"/></svg></button>
+  <button id="btnUndo" class="btn icon sm ghost" title="Annuler — Ctrl+Z"><svg class="i sm"><use href="#i-undo"/></svg></button>
+  <button id="btnRedo" class="btn icon sm ghost" title="Refaire — Ctrl+Y"><svg class="i sm"><use href="#i-redo"/></svg></button>
   <span class="vsep"></span>
-  <button id="tlMute" class="btn icon sm" title="Couper / remettre le son du clip — Ctrl+M"><svg class="i sm"><use href="#i-vol"/></svg></button>
-  <button id="tlDetach" class="btn icon sm" title="Detacher l'audio sur une piste separee"><svg class="i sm"><use href="#i-detach"/></svg></button>
+  <button id="tlSplit" class="btn icon sm ghost" title="Couper au curseur — S&#10;Un clip selectionne : on ne coupe que celui-la (Ctrl+clic pour en ajouter).&#10;Rien de selectionne : on coupe toutes les pistes."><svg class="i sm"><use href="#i-cut"/></svg></button>
+  <button id="tlCutL" class="btn icon sm ghost" title="Couper la partie gauche — Q&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-left"/></svg></button>
+  <button id="tlCutR" class="btn icon sm ghost" title="Couper la partie droite — W&#10;S'applique au(x) clip(s) selectionne(s), sinon a tout ce qui est sous le curseur."><svg class="i sm"><use href="#i-trim-right"/></svg></button>
+  <button id="tlDel" class="btn icon sm ghost" title="Supprimer — Suppr"><svg class="i sm"><use href="#i-trash"/></svg></button>
+  <button id="tlRipple" class="btn icon sm ghost" title="Supprimer et combler le trou — Maj+Suppr"><svg class="i sm"><use href="#i-ripple"/></svg></button>
+  <button id="tlDup" class="btn icon sm ghost" title="Dupliquer — Ctrl+D"><svg class="i sm"><use href="#i-copy"/></svg></button>
   <span class="vsep"></span>
-  <button id="tlFace" class="btn icon sm hi" title="Flouter un visage (rond flou + suivi) — F"><svg class="i sm"><use href="#i-face"/></svg></button>
-  <button id="tlMask" class="btn icon sm" title="Ajouter un masque flou — M"><svg class="i sm"><use href="#i-mask"/></svg></button>
-  <button id="tlOverlay" class="btn icon sm" title="Superposer le media selectionne par-dessus la video"><svg class="i sm"><use href="#i-layers"/></svg></button>
-  <button id="tlTrans" class="btn icon sm" title="Fondu enchaine avec le clip suivant"><svg class="i sm"><use href="#i-transition"/></svg></button>
+  <button id="tlMute" class="btn icon sm ghost" title="Couper / remettre le son du clip — Ctrl+M"><svg class="i sm"><use href="#i-vol"/></svg></button>
+  <button id="tlDetach" class="btn icon sm ghost" title="Detacher l'audio sur une piste separee"><svg class="i sm"><use href="#i-detach"/></svg></button>
   <span class="vsep"></span>
-  <button id="tlSnap" class="btn icon sm toggle on" title="Aimant (accrochage)"><svg class="i sm"><use href="#i-magnet"/></svg></button>
+  <button id="tlFace" class="btn icon sm ghost hi" title="Flouter un visage (rond flou + suivi) — F"><svg class="i sm"><use href="#i-face"/></svg></button>
+  <button id="tlMask" class="btn icon sm ghost" title="Ajouter un masque flou — M"><svg class="i sm"><use href="#i-mask"/></svg></button>
+  <button id="tlOverlay" class="btn icon sm ghost" title="Superposer le media selectionne par-dessus la video"><svg class="i sm"><use href="#i-layers"/></svg></button>
+  <button id="tlTrans" class="btn icon sm ghost" title="Fondu enchaine avec le clip suivant"><svg class="i sm"><use href="#i-transition"/></svg></button>
+  <span class="vsep"></span>
+  <button id="tlSnap" class="btn icon sm ghost toggle on" title="Aimant (accrochage)"><svg class="i sm"><use href="#i-magnet"/></svg></button>
   <span class="vsep"></span>
   <div id="clipChips" class="clip-chips hidden"></div>
   <div class="spacer"></div>
-  <button id="tlZoomOut" class="btn icon sm" title="Zoom arriere — -"><svg class="i sm"><use href="#i-zoom-out"/></svg></button>
+  <button id="tlZoomOut" class="btn icon sm ghost" title="Zoom arriere — -"><svg class="i sm"><use href="#i-zoom-out"/></svg></button>
   <input id="tlZoom" class="zoomer" type="range" min="0" max="1000" value="300" title="Zoom de la timeline">
-  <button id="tlZoomIn" class="btn icon sm" title="Zoom avant — +"><svg class="i sm"><use href="#i-zoom-in"/></svg></button>
-  <button id="tlFit" class="btn icon sm" title="Tout afficher — Maj+Z"><svg class="i sm"><use href="#i-fit"/></svg></button>
+  <button id="tlZoomIn" class="btn icon sm ghost" title="Zoom avant — +"><svg class="i sm"><use href="#i-zoom-in"/></svg></button>
+  <button id="tlFit" class="btn icon sm ghost" title="Tout afficher — Maj+Z"><svg class="i sm"><use href="#i-fit"/></svg></button>
 </div>
 
 <div class="timeline" id="timeline"></div>
@@ -292,8 +274,7 @@
     <div class="grid2">
       <label>Resolution<select id="exRes"></select></label>
       <label>Images / s<select id="exFps"></select></label>
-      <label>Codec<select id="exCodec"></select></label>
-      <label>Qualite
+      <label class="span2">Qualite
         <select id="exQual">
           <option value="low">Legere</option>
           <option value="medium">Standard</option>
@@ -301,31 +282,38 @@
           <option value="max">Maximale</option>
         </select>
       </label>
-      <label>Debit video
-        <div class="inline-row"><input id="exBitrate" type="number" min="1" max="400" step="1"><span class="unit">Mb/s</span></div>
-      </label>
-      <label>Audio
-        <select id="exAudio">
-          <option value="192000" selected>AAC 192 kb/s</option>
-          <option value="320000">AAC 320 kb/s</option>
-          <option value="128000">AAC 128 kb/s</option>
-          <option value="0">Sans audio</option>
-        </select>
-      </label>
-      <label>Image cle tous les
-        <div class="inline-row"><input id="exGop" type="number" min="1" max="600" step="1" value="60"><span class="unit">images</span></div>
-      </label>
-      <label>Etendue
-        <select id="exRange">
-          <option value="all">Tout le projet</option>
-          <option value="sel">Selection</option>
-        </select>
-      </label>
     </div>
-    <label class="wide case">
-      <input id="exSeul" type="checkbox">
-      <span>Exporter sur un seul coeur <small>— plus lent, a essayer si l'export saccade ou se coupe</small></span>
-    </label>
+    <!-- reglages fins : le chemin normal n'en a pas besoin -->
+    <details class="dl-avance ex-avance">
+      <summary>Options avancees</summary>
+      <div class="grid2">
+        <label>Codec<select id="exCodec"></select></label>
+        <label>Audio
+          <select id="exAudio">
+            <option value="192000" selected>AAC 192 kb/s</option>
+            <option value="320000">AAC 320 kb/s</option>
+            <option value="128000">AAC 128 kb/s</option>
+            <option value="0">Sans audio</option>
+          </select>
+        </label>
+        <label>Debit video
+          <div class="inline-row"><input id="exBitrate" type="number" min="1" max="400" step="1"><span class="unit">Mb/s</span></div>
+        </label>
+        <label>Image cle tous les
+          <div class="inline-row"><input id="exGop" type="number" min="1" max="600" step="1" value="60"><span class="unit">images</span></div>
+        </label>
+        <label>Etendue
+          <select id="exRange">
+            <option value="all">Tout le projet</option>
+            <option value="sel">Selection</option>
+          </select>
+        </label>
+      </div>
+      <label class="wide case">
+        <input id="exSeul" type="checkbox">
+        <span>Exporter sur un seul coeur <small>— plus lent, a essayer si l'export saccade ou se coupe</small></span>
+      </label>
+    </details>
     <p id="exInfo" class="callout"></p>
     <div class="dlg-actions">
       <button value="cancel" class="btn">Annuler</button>
@@ -373,7 +361,7 @@
     </p>
     <p class="hint">
       Ce menage se fait aussi tout seul : les copies les moins utilisees sont
-      effacees des que le cache depasse 2 Go.
+      effacees des que le cache depasse 1 Go.
     </p>
     <div class="dlg-actions">
       <button value="ok" class="btn primary">Fermer</button>
@@ -428,7 +416,7 @@
       </label>
       <button id="homeImport" class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg>Nouveau + importer</button>
       <button id="homeNew" class="btn primary sm"><svg class="i sm"><use href="#i-plus"/></svg>Nouveau projet</button>
-      <button id="homeClose" class="btn icon sm" title="Fermer"><svg class="i sm"><use href="#i-close"/></svg></button>
+      <button id="homeClose" class="btn icon sm ghost" title="Fermer"><svg class="i sm"><use href="#i-close"/></svg></button>
     </div>
     <div id="homeGrid" class="home-grid"></div>
     <div class="home-foot faint tiny">

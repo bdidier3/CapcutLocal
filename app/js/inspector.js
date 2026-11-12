@@ -366,13 +366,6 @@ export class Inspector {
     this.player.seek(clip.t0 + cand);
   }
 
-  _jumpKey(clip, times, dir) {
-    const t = this.tLocal;
-    const cand = dir > 0 ? times.find((x) => x > t + 0.001) : [...times].reverse().find((x) => x < t - 0.001);
-    if (cand === undefined) return toast('Pas d\'autre keyframe', 'warn', 1500);
-    this.player.seek(clip.t0 + cand);
-  }
-
   // ------------------------------------------------------------ transformation
 
   _transform(clip) {

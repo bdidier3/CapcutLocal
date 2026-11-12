@@ -155,6 +155,4 @@ export class Prechauffe {
     if (this.surEtat) this.surEtat(this.etat);
   }
 
-  /** Un fichier rebranche ou retire : ce qu'on en savait ne vaut plus. */
-  oublier(mediaId) { this.lus.delete(mediaId); }
 }

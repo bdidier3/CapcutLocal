@@ -60,7 +60,6 @@ export class Player extends Emitter {
     this.loop = false;
     this.quality = 'auto';       // 'auto' | 1 | 0.5 | 0.25
     this.els = new Map();        // clipId -> {el, clipId, mediaId, lastUse, ready}
-    this.bitmaps = new Map();    // mediaId -> ImageBitmap
     this.decs = new Map();       // clipId -> decodeur exact (apercu a l'arret)
     this.dirty = true;
     this.lastTick = 0;
@@ -236,21 +235,6 @@ export class Player extends Emitter {
     }
     this.decs.clear();
     for (const id of [...this.els.keys()]) this._dispose(id);
-    for (const b of this.bitmaps.values()) b.close && b.close();
-    this.bitmaps.clear();
-  }
-
-  async _bitmap(media) {
-    if (this.bitmaps.has(media.id)) return this.bitmaps.get(media.id);
-    const f = this.lib.file(media.id);
-    if (!f) return null;
-    this.bitmaps.set(media.id, null); // evite les demandes concurrentes
-    try {
-      const b = await createImageBitmap(f, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      this.bitmaps.set(media.id, b);
-      this.dirty = true;
-      return b;
-    } catch (_) { return null; }
   }
 
   // ------------------------------------------------------------ taille rendu
@@ -282,7 +266,9 @@ export class Player extends Emitter {
         this._wallLast = now;
         this._syncMedia();          // demarre toutes les sources ensemble
       }
-      if (this.dirty) { this.dirty = false; this.render(); }
+      // L'image vient du decodeur exact, comme en lecture : les elements media
+      // ne portent que le son.
+      if (this.dirty) { this.dirty = false; this.renderExact().catch(() => {}); }
       return;
     }
 
@@ -306,7 +292,7 @@ export class Player extends Emitter {
     // courts ils n'ont pas le temps de se placer : chacun n'affichait que sa
     // premiere image, et l'apercu ressemblait a un diaporama. Le decodeur, lui,
     // rend l'image que la timeline demande, quelle que soit la duree du plan.
-    this.renderExact().catch(() => this.render());
+    this.renderExact().catch(() => {});
     if (this.playing) this._preparerSuivants();
     this._ranger(now);
 
@@ -520,58 +506,6 @@ export class Player extends Emitter {
       if (performance.now() - e.lastUse > 20000) this._dispose(clipId);
     }
   }
-
-  /** Fournisseur de sources pour compose(). */
-  _source = (clip, media, srcTime) => {
-    if (media.kind === 'image') {
-      const b = this.bitmaps.get(media.id);
-      if (b === undefined) { this._bitmap(media); return null; }
-      if (!b) return null;
-      return { src: b, w: b.width, h: b.height, id: 'img:' + media.id };
-    }
-    const e = this.els.get(clip.id);
-    if (!e || !e.el.videoWidth) { this._attente = true; return null; }
-
-    // Est-on sur la BONNE image ?
-    //
-    // Comparer des durees ne suffit pas : l'ancienne tolerance laissait passer
-    // une image et demie d'ecart, si bien qu'un plan court pouvait montrer
-    // l'image d'avant — l'apercu ne correspondait alors pas au montage. On
-    // compare donc des numeros d'image, ce qui est la question reellement
-    // posee : l'element affiche-t-il l'image que la timeline demande ?
-    const fps = media.fps > 0 ? media.fps : 30;
-    const voulu = Math.floor(srcTime * fps + 1e-6);
-    // On se fie a l'image peinte quand le navigateur sait nous la donner.
-    const vu = e.mediaTime !== undefined ? e.mediaTime : e.el.currentTime;
-    // L'instant d'une image est un multiple de la cadence, a l'erreur de calcul
-    // pres : on arrondit, alors que pour l'instant DEMANDE on prend l'image qui
-    // le contient. Tronquer les deux ferait rater une image sur deux a cause
-    // d'un millioniemme de seconde.
-    const affiche = Math.round(vu * fps);
-    const exact = voulu === affiche;
-
-    if (!this.playing) {
-      // A l'arret, mieux vaut ne rien montrer qu'un plan qui n'est pas celui
-      // demande : l'utilisateur cale ses coupes sur ce qu'il voit.
-      if (!exact) { this._attente = true; return null; }
-      return { src: e.el, w: e.el.videoWidth, h: e.el.videoHeight, id: clip.id, stale: false };
-    }
-
-    // En LECTURE, c'est l'element qui donne le tempo : ce qu'il affiche est,
-    // par construction, l'image du moment. Exiger la coincidence exacte n'a pas
-    // de sens ici — l'ecran et le decodeur ne battent pas ensemble, et l'ecart
-    // d'une image est permanent. L'exiger quand meme faisait declarer l'image
-    // « perimee » a chaque tour : le rendu gardait alors la texture precedente
-    // et le plan restait bloque sur sa premiere image.
-    //
-    // On ne signale « perime » que si l'element est REELLEMENT ailleurs : un
-    // saut en cours, ou un plan qui n'a pas encore rejoint sa position.
-    const ecart = Math.abs(affiche - voulu);
-    return {
-      src: e.el, w: e.el.videoWidth, h: e.el.videoHeight, id: clip.id,
-      stale: ecart > 3 || e.el.seeking,
-    };
-  };
 
   /** Lit le contenu du canvas WebGL dans un canvas 2D (retourne verticalement). */
   _readToCanvas(maxW) {
@@ -958,28 +892,5 @@ export class Player extends Emitter {
     for (const [id, d] of this.decs) {
       if (now - d.vu > 30000) { this.decs.delete(id); try { if (d.dec) d.dec.close(); } catch (_) {} }
     }
-  }
-
-  render() {
-    this._attente = false;
-    const [w, h] = this.renderSize();
-    this.renderer.setSize(w, h);
-    const frame = buildFrame(this.store.project, this.store.playhead, this._source, w, h);
-    // televerse les textures ; une source perimee conserve son image precedente
-    for (const L of frame.layers) {
-      const e = L.stale
-        ? (this.renderer.cached(L.texId) || this.renderer.upload(L.texId, L.source, L.srcW, L.srcH))
-        : this.renderer.upload(L.texId, L.source, L.srcW, L.srcH);
-      L.tex = e ? e.tex : null;
-    }
-    this.renderer.render(frame, true);
-    // « en attente » : au moins une source n'est pas encore sur la bonne image.
-    // L'interface peut alors montrer un chargement plutot qu'un ecran vide.
-    if (this._attente !== this._attenteVue) {
-      this._attenteVue = this._attente;
-      this.emit('attente', this._attente);
-    }
-    this.emit('rendered', frame);
-    return frame;
   }
 }
